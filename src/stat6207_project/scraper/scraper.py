@@ -19,7 +19,6 @@ from pathlib import Path
 # ============================================================================
 # TEXT CLEANING
 # ============================================================================
-
 INVISIBLE_CHARS = {
     '\u200b',  # Zero-width space
     '\u200c',  # Zero-width non-joiner
@@ -46,13 +45,13 @@ def remove_invisible_chars(text: str) -> str:
     return text.strip()
 
 
-# Predefined CSV column order
+# Predefined CSV column order - error_message moved between height and scrape_status
 CSV_FIELDNAMES = [
     'isbn', 'product_name', 'asin', 'author', 'availability', 'best_sellers_rank',
-    'customer_reviews', 'description', 'edition', 'error_message', 'features',
+    'customer_reviews', 'description', 'edition', 'features',
     'isbn_10', 'isbn_13', 'item_weight', 'language', 'number_of_reviews',
     'part_of_series', 'price', 'print_length', 'product_url', 'publication_date',
-    'publisher', 'rating', 'reading_age', 'length', 'width', 'height', 'scrape_status'
+    'publisher', 'rating', 'reading_age', 'length', 'width', 'height', 'error_message', 'scrape_status'
 ]
 
 
@@ -76,7 +75,6 @@ def clean_data(product_data: Dict) -> Dict:
         if not isinstance(text, str):
             return text
         text = remove_invisible_chars(text)
-
         match = re.search(r'([\d,]+)', text)
         if match:
             return match.group(1).replace(',', '')
@@ -87,7 +85,6 @@ def clean_data(product_data: Dict) -> Dict:
         if not isinstance(text, str):
             return text
         text = remove_invisible_chars(text)
-
         match = re.search(r'([\d.]+)\s+out of', text)
         if match:
             return match.group(1)
@@ -98,7 +95,6 @@ def clean_data(product_data: Dict) -> Dict:
         if not isinstance(text, str):
             return text
         text = remove_invisible_chars(text)
-
         match = re.search(r'([\d.]+)\s+out of 5', text)
         if match:
             rating = float(match.group(1))
@@ -111,7 +107,6 @@ def clean_data(product_data: Dict) -> Dict:
         if not isinstance(text, str):
             return text
         text = remove_invisible_chars(text)
-
         match = re.search(r'([\d,]+)', text)
         if match:
             return match.group(1)
@@ -122,7 +117,6 @@ def clean_data(product_data: Dict) -> Dict:
         if not isinstance(text, str):
             return text
         text = remove_invisible_chars(text)
-
         try:
             date_obj = datetime.strptime(text, '%B %d, %Y')
             return date_obj.strftime('%Y-%m-%d')
@@ -134,12 +128,10 @@ def clean_data(product_data: Dict) -> Dict:
         if not isinstance(text, str):
             return text
         text = remove_invisible_chars(text)
-
         try:
             # Extract pounds and ounces values
             pounds_match = re.search(r'([\d.]+)\s*pounds?', text)
             ounces_match = re.search(r'([\d.]+)\s*ounces?', text)
-
             total_grams = 0.0
 
             if pounds_match:
@@ -183,7 +175,6 @@ def clean_data(product_data: Dict) -> Dict:
 # ============================================================================
 # DIMENSION PARSING
 # ============================================================================
-
 def parse_dimensions(dimension_str: Optional[str]) -> Dict[str, Optional[float]]:
     """
     Parse dimension string from Amazon and convert to inches if needed.
@@ -191,12 +182,11 @@ def parse_dimensions(dimension_str: Optional[str]) -> Dict[str, Optional[float]]
     FBA (Fulfillment by Amazon) Specification:
     Amazon format: a x b x c
     where:
-      a = length (longest side of packaged item)
-      b = width (median side of packaged item)
-      c = height (shortest side of packaged item)
+        a = length (longest side of packaged item)
+        b = width (median side of packaged item)
+        c = height (shortest side of packaged item)
 
     Input format: "L x W x H inches" or "L x W x H cm"
-
     Returns dict with length, width, height in inches (None if parsing fails)
     """
     result = {'length': None, 'width': None, 'height': None}
@@ -221,7 +211,6 @@ def parse_dimensions(dimension_str: Optional[str]) -> Dict[str, Optional[float]]
         # Determine unit and convert to inches if needed
         unit = unit.lower() if unit else 'inches'
         conversion_factor = 1.0
-
         if unit.startswith('cm'):
             conversion_factor = 0.393701  # 1 cm = 0.393701 inches
 
@@ -238,7 +227,6 @@ def parse_dimensions(dimension_str: Optional[str]) -> Dict[str, Optional[float]]
         result['height'] = round(dim3, 2)
 
         return result
-
     except (ValueError, TypeError):
         return result
 
@@ -246,7 +234,6 @@ def parse_dimensions(dimension_str: Optional[str]) -> Dict[str, Optional[float]]
 # ============================================================================
 # CSV FILE OPERATIONS
 # ============================================================================
-
 def append_record_to_csv(record: Dict, filename: str = 'data/scrape_results.csv') -> None:
     """
     Append a single record to CSV file using predefined column order.
@@ -286,7 +273,6 @@ def get_already_scraped_isbns(csv_filename: str = 'data/scrape_results.csv') -> 
 
     try:
         df = pl.read_csv(csv_path)
-
         if 'isbn' not in df.columns:
             print("Warning: 'isbn' column not found in CSV")
             return []
@@ -294,7 +280,6 @@ def get_already_scraped_isbns(csv_filename: str = 'data/scrape_results.csv') -> 
         isbn_col = df.select('isbn').to_series().to_list()
         print(f"Found {len(isbn_col)} already scraped records in {csv_filename}")
         return isbn_col
-
     except Exception as e:
         print(f"Error reading existing CSV: {e}")
         return []
@@ -320,7 +305,6 @@ def filter_barcodes_to_scrape(barcodes: list, csv_filename: str = 'data/scrape_r
 # ============================================================================
 # DATABASE OPERATIONS
 # ============================================================================
-
 def create_sqlite_engine(db_path: str):
     """Create SQLAlchemy engine for SQLite database."""
     db_file = Path(db_path)
@@ -332,30 +316,38 @@ def create_sqlite_engine(db_path: str):
     return engine
 
 
-def load_table_from_sqlite(engine, table_name: str) -> pl.DataFrame:
-    """Load a table from SQLite database using SQLAlchemy engine."""
-    query = f"SELECT * FROM {table_name}"
-    with engine.connect() as conn:
-        df = pl.read_database(query=query, connection=conn)
-    print(f"Loaded {len(df)} rows from table '{table_name}'")
-    return df
-
-
 def load_all_tables(db_path: str) -> Dict[str, pl.DataFrame]:
     """Load all tables from the database using SQLAlchemy."""
-    engine = create_sqlite_engine(db_path)
-    table_names = ['products', 'purchase', 'sales', 'shops']
-    return {table_name: load_table_from_sqlite(engine, table_name)
-            for table_name in table_names}
+
+    db_file = Path(db_path)
+    if not db_file.exists():
+        raise FileNotFoundError(f"Database not found: {db_file.resolve()}")
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    table_holders = {"products": None, "purchase": None, "sales": None, "shops": None}
+
+    with engine.connect() as conn:
+        for table_name in table_holders.keys():
+            query = f"SELECT * FROM {table_name}"
+            try:
+                df = pl.read_database(query=query, connection=conn)
+            except:
+                raise ValueError(f"Failed to load table: {table_name}")
+            print(f"Loaded {len(df)} rows from table '{table_name}'")
+
+            table_holders[table_name] = df
 
 
-def extract_barcodes(products_df: pl.DataFrame, column_name: str = 'barcode2') -> list:
+    return table_holders
+
+
+def get_unique_barcodes(products_df: pl.DataFrame, column_name: str = 'barcode2') -> list:
     """Extract unique barcodes from products DataFrame."""
     barcodes = (
         products_df
         .select(column_name)
         .drop_nulls()
-        .unique()
+        .unique(maintain_order=True)
         .to_series()
         .to_list()
     )
@@ -366,7 +358,6 @@ def extract_barcodes(products_df: pl.DataFrame, column_name: str = 'barcode2') -
 # ============================================================================
 # WEBDRIVER SETUP
 # ============================================================================
-
 def initialize_driver(headless: bool = True) -> webdriver.Chrome:
     """Initialize Chrome WebDriver with anti-detection settings."""
     options = webdriver.ChromeOptions()
@@ -384,13 +375,13 @@ def initialize_driver(headless: bool = True) -> webdriver.Chrome:
 
     driver = webdriver.Chrome(options=options)
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
     return driver
 
 
 # ============================================================================
 # AMAZON NAVIGATION
 # ============================================================================
-
 def search_amazon(barcode: str, driver: webdriver.Chrome) -> Optional[str]:
     """Search Amazon for barcode and return URL of first product."""
     search_url = f"https://www.amazon.com/s?k={barcode}&language=en_US&currency=HKD"
@@ -430,7 +421,6 @@ def navigate_to_product(product_url: str, driver: webdriver.Chrome) -> None:
 # ============================================================================
 # HTML PARSING AND DATA EXTRACTION
 # ============================================================================
-
 EMPTY_PRODUCT = {
     'isbn': None, 'product_url': None, 'product_name': None, 'price': None,
     'rating': None, 'number_of_reviews': None, 'availability': None,
@@ -469,6 +459,54 @@ def create_failed_product(barcode: str, error: str) -> Dict:
     product['scrape_status'] = 'FAILED'
     product['error_message'] = error
     return product
+
+
+def extract_part_of_series(soup: BeautifulSoup) -> Optional[str]:
+    """
+    Extract 'Part of series' field from Amazon product detail bullets.
+
+    This field appears in the detail bullets section with label 'Part of series'
+    and contains a link to the series page. The function extracts the series name
+    from either the link text or the span text following the label.
+
+    Args:
+        soup: BeautifulSoup object containing parsed HTML
+
+    Returns:
+        Series name as string, or None if not found
+    """
+    # Try to find in detail bullets wrapper (new format)
+    if details_wrapper := soup.find('div', {'id': 'detailBulletsWrapper_feature_div'}):
+        # Find all list items
+        for li in details_wrapper.find_all('li'):
+            li_text = li.get_text(strip=True)
+            # Check if this is the "Part of series" field
+            if 'Part of series' in li_text:
+                # Try to extract from link first
+                if series_link := li.find('a', {'class': 'a-link-normal'}):
+                    return series_link.get_text(strip=True)
+                # Fallback: extract text after the label
+                # Split by the label and take the part after the colon
+                parts = li_text.split('Part of series')
+                if len(parts) > 1:
+                    series_text = parts[1].strip()
+                    # Remove leading punctuation like : and whitespace
+                    series_text = re.sub(r'^[\s:‏‎]+', '', series_text)
+                    return series_text if series_text else None
+
+    # Try older format in detailBullets_feature_div
+    if details_section := soup.find('div', {'id': 'detailBullets_feature_div'}):
+        for li in details_section.find_all('li'):
+            li_text = li.get_text(strip=True)
+            if 'Part of series' in li_text or 'Series' in li_text:
+                if series_link := li.find('a'):
+                    return series_link.get_text(strip=True)
+                # Extract text after the colon
+                if ':' in li_text:
+                    series_text = li_text.split(':', 1)[1].strip()
+                    return series_text if series_text else None
+
+    return None
 
 
 def extract_basic_info(soup: BeautifulSoup, product_data: Dict) -> None:
@@ -561,6 +599,10 @@ def extract_all_product_data(soup: BeautifulSoup, barcode: str, url: str) -> Dic
     extract_details_from_bullets(soup, product_data)
     extract_details_from_table(soup, product_data)
 
+    # Extract part_of_series using dedicated function
+    if not product_data.get('part_of_series'):
+        product_data['part_of_series'] = extract_part_of_series(soup)
+
     product_data['scrape_status'] = 'SUCCESS'
     return clean_data(product_data)
 
@@ -568,7 +610,6 @@ def extract_all_product_data(soup: BeautifulSoup, barcode: str, url: str) -> Dic
 # ============================================================================
 # MAIN SCRAPING ORCHESTRATION
 # ============================================================================
-
 def scrape_amazon_product(barcode: str, driver: webdriver.Chrome,
                           csv_filename: str = 'data/scrape_results.csv') -> bool:
     """Search Amazon for a barcode, scrape data, and append to CSV (including failures)."""
@@ -623,14 +664,12 @@ def process_barcodes(barcodes: list, driver: webdriver.Chrome,
 # ============================================================================
 # MAIN EXECUTION
 # ============================================================================
-
 def main():
     """Main execution function."""
     try:
         print("Loading tables from database...")
         tables = load_all_tables('Topic1_dataset.sqlite')
-        barcodes = extract_barcodes(tables['products'], column_name='barcode2')
-
+        barcodes = get_unique_barcodes(tables['products'], column_name='barcode2')
     except FileNotFoundError as e:
         print(f"\n❌ Error: {e}")
         print(f"Current working directory: {os.getcwd()}")
@@ -640,7 +679,6 @@ def main():
         return
 
     output_file = 'data/scrape_results.csv'
-
     barcodes_to_scrape = filter_barcodes_to_scrape(barcodes, output_file)[:10]
 
     if not barcodes_to_scrape:
@@ -652,8 +690,8 @@ def main():
 
     try:
         successful_count, failed_count = process_barcodes(barcodes_to_scrape, driver, output_file)
-
         total_count = successful_count + failed_count
+
         print(f"\n{'=' * 60}")
         print(f"Scraping session completed!")
         print(f"  ✓ Successful: {successful_count}")
@@ -665,7 +703,6 @@ def main():
     except KeyboardInterrupt:
         print("\n\n⚠ Scraping interrupted by user")
         print(f"✓ Partial results saved to {output_file}")
-
     finally:
         print("\nClosing browser...")
         driver.quit()
