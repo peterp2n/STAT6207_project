@@ -1,5 +1,6 @@
 import polars as pl
 import numpy as np
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -34,11 +35,18 @@ INVISIBLE_CHARS = {
     '\u00a0',  # Non-breaking space
 }
 
+
+def remove_invisible_chars(text: str) -> str:
+    """Remove all invisible Unicode characters and control characters from text."""
+    if not isinstance(text, str):
+        return text
+    text = ''.join(c for c in text if c not in INVISIBLE_CHARS)
+    text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)
+    text = ''.join(c for c in text if unicodedata.category(c)[0] != 'C')
+    return text.strip()
+
+
 # Predefined CSV column order
-# Dimensions ordered per FBA (Fulfillment by Amazon) specification:
-# - length: longest side (a)
-# - width: median side (b)
-# - height: shortest side (c)
 CSV_FIELDNAMES = [
     'isbn', 'product_name', 'asin', 'author', 'availability', 'best_sellers_rank',
     'customer_reviews', 'description', 'edition', 'error_message', 'features',
@@ -49,35 +57,47 @@ CSV_FIELDNAMES = [
 
 
 def clean_data(product_data: Dict) -> Dict:
-    """Clean product data by removing invisible Unicode characters from text fields."""
+    """Clean product data by removing invisible Unicode characters and processing fields."""
 
     def _clean_text(text: str) -> str:
         if not isinstance(text, str):
             return text
-        text = ''.join(c for c in text if c not in INVISIBLE_CHARS)
-        text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)
-        return ''.join(c for c in text if unicodedata.category(c)[0] != 'C').strip()
+        return remove_invisible_chars(text)
 
     def _clean_isbn(text: str) -> Optional[str]:
         """Remove hyphens and non-digit characters from ISBN."""
         if not isinstance(text, str):
             return text
+        text = remove_invisible_chars(text)
         return re.sub(r'\D', '', text)
 
     def _clean_number_of_reviews(text: str) -> Optional[str]:
         """Extract number from 'X,XXX ratings' format."""
         if not isinstance(text, str):
             return text
+        text = remove_invisible_chars(text)
 
         match = re.search(r'([\d,]+)', text)
         if match:
             return match.group(1).replace(',', '')
         return text
 
+    def _clean_rating(text: str) -> Optional[str]:
+        """Extract rating score from 'X.X out of 5 stars' format."""
+        if not isinstance(text, str):
+            return text
+        text = remove_invisible_chars(text)
+
+        match = re.search(r'([\d.]+)\s+out of', text)
+        if match:
+            return match.group(1)
+        return text
+
     def _clean_customer_reviews(text: str) -> Optional[str]:
         """Extract rating number from 'X out of 5' format, keeping integer or 1 dp."""
         if not isinstance(text, str):
             return text
+        text = remove_invisible_chars(text)
 
         match = re.search(r'([\d.]+)\s+out of 5', text)
         if match:
@@ -86,14 +106,72 @@ def clean_data(product_data: Dict) -> Dict:
             return str(int(rating)) if rating == int(rating) else f"{rating:.1f}"
         return text
 
+    def _clean_print_length(text: str) -> Optional[str]:
+        """Extract page number from 'X pages' format, handling comma-separated numbers."""
+        if not isinstance(text, str):
+            return text
+        text = remove_invisible_chars(text)
+
+        match = re.search(r'([\d,]+)', text)
+        if match:
+            return match.group(1)
+        return text
+
+    def _clean_publication_date(text: str) -> Optional[str]:
+        """Convert publication date from 'Month D, YYYY' format to 'YYYY-MM-DD' format."""
+        if not isinstance(text, str):
+            return text
+        text = remove_invisible_chars(text)
+
+        try:
+            date_obj = datetime.strptime(text, '%B %d, %Y')
+            return date_obj.strftime('%Y-%m-%d')
+        except ValueError:
+            return text
+
+    def _clean_item_weight(text: str) -> Optional[str]:
+        """Convert item weight to grams. Handles 'X pounds, Y ounces' format."""
+        if not isinstance(text, str):
+            return text
+        text = remove_invisible_chars(text)
+
+        try:
+            # Extract pounds and ounces values
+            pounds_match = re.search(r'([\d.]+)\s*pounds?', text)
+            ounces_match = re.search(r'([\d.]+)\s*ounces?', text)
+
+            total_grams = 0.0
+
+            if pounds_match:
+                pounds = float(pounds_match.group(1))
+                total_grams += pounds * 453.592  # 1 pound = 453.592 grams
+
+            if ounces_match:
+                ounces = float(ounces_match.group(1))
+                total_grams += ounces * 28.3495  # 1 ounce = 28.3495 grams
+
+            if total_grams > 0:
+                return str(round(total_grams, 2))
+            return text
+        except (ValueError, AttributeError):
+            return text
+
     clean = {}
     for k, v in product_data.items():
         if k in ('isbn_10', 'isbn_13') and isinstance(v, str):
             clean[k] = _clean_isbn(v)
         elif k == 'number_of_reviews' and isinstance(v, str):
             clean[k] = _clean_number_of_reviews(v)
+        elif k == 'rating' and isinstance(v, str):
+            clean[k] = _clean_rating(v)
         elif k == 'customer_reviews' and isinstance(v, str):
             clean[k] = _clean_customer_reviews(v)
+        elif k == 'print_length' and isinstance(v, str):
+            clean[k] = _clean_print_length(v)
+        elif k == 'publication_date' and isinstance(v, str):
+            clean[k] = _clean_publication_date(v)
+        elif k == 'item_weight' and isinstance(v, str):
+            clean[k] = _clean_item_weight(v)
         elif isinstance(v, str):
             clean[k] = _clean_text(v)
         else:
@@ -126,7 +204,7 @@ def parse_dimensions(dimension_str: Optional[str]) -> Dict[str, Optional[float]]
     if not dimension_str or not isinstance(dimension_str, str):
         return result
 
-    dimension_str = dimension_str.strip()
+    dimension_str = remove_invisible_chars(dimension_str)
 
     # Extract numbers and unit
     # Pattern: number x number x number [unit]
@@ -563,7 +641,7 @@ def main():
 
     output_file = 'data/scrape_results.csv'
 
-    barcodes_to_scrape = filter_barcodes_to_scrape(barcodes, output_file)[:5]
+    barcodes_to_scrape = filter_barcodes_to_scrape(barcodes, output_file)[:10]
 
     if not barcodes_to_scrape:
         print("\n✓ All records have already been scraped!")
