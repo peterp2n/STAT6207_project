@@ -9,6 +9,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from typing import List, Optional, Dict
 import time
+import re
 
 
 @dataclass
@@ -16,6 +17,32 @@ class TorScraper:
     queries: List[str]
     headless: bool = False
     driver: Optional[webdriver.Firefox] = None
+
+    @staticmethod
+    def sanitize_filename(filename: str, max_length: int = 200) -> str:
+        """
+        Sanitize a string to make it safe for use as a filename.
+        Removes or replaces invalid characters for Windows, Mac, and Linux.
+        """
+        # Replace invalid characters with underscore
+        # Invalid: / \ : * ? " < > | and control characters
+        sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename)
+
+        # Replace multiple spaces with single space
+        sanitized = re.sub(r'\s+', ' ', sanitized)
+
+        # Remove leading/trailing spaces and dots (Windows doesn't allow)
+        sanitized = sanitized.strip(' .')
+
+        # If filename is empty after sanitization, use a default
+        if not sanitized:
+            sanitized = "unnamed"
+
+        # Limit length to avoid filesystem issues
+        if len(sanitized) > max_length:
+            sanitized = sanitized[:max_length]
+
+        return sanitized
 
     def create_driver(self) -> bool:
         """Create a single Firefox/Tor browser instance"""
@@ -71,7 +98,8 @@ class TorScraper:
         # Check for CAPTCHA
         if "captcha" in self.driver.page_source.lower():
             print(f"[{query}] ⚠️  CAPTCHA detected!")
-            self.driver.save_screenshot(f"captcha_{query.replace(' ', '_')}.png")
+            sanitized_query = self.sanitize_filename(query)
+            self.driver.save_screenshot(f"captcha_{sanitized_query}.png")
             return False
 
         # Find search box
@@ -90,7 +118,7 @@ class TorScraper:
                 search_box.send_keys(query)
                 search_box.send_keys(Keys.RETURN)
                 print(f"[{query}] Search submitted")
-                time.sleep(5)  # Increased wait for results to load
+                time.sleep(5)
                 return True
             except:
                 continue
@@ -113,13 +141,9 @@ class TorScraper:
 
             # Try multiple selectors for the first result link
             selectors = [
-                # Based on your HTML - title link with data-cy attribute
                 (By.CSS_SELECTOR, "div[data-cy='title-recipe'] a.s-link-style"),
-                # H2 with link
                 (By.CSS_SELECTOR, "h2.a-size-medium a"),
-                # More general - any product title link
                 (By.CSS_SELECTOR, "div.s-main-slot div[data-component-type='s-search-result'] h2 a"),
-                # Even more general - first link that goes to /dp/
                 (By.CSS_SELECTOR, "div.s-main-slot a[href*='/dp/']"),
             ]
 
@@ -131,11 +155,10 @@ class TorScraper:
                     print(f"[{query}] Trying selector: {selector_value}")
                     elements = self.driver.find_elements(selector_type, selector_value)
 
-                    # Filter to get actual product links (not "More Buying Choices" etc)
+                    # Filter to get actual product links
                     for element in elements:
                         href = element.get_attribute("href")
                         if href and "/dp/" in href and "offer-listing" not in href:
-                            # Make sure element is visible
                             if element.is_displayed():
                                 first_result = element
                                 product_url = href
@@ -151,7 +174,8 @@ class TorScraper:
 
             if not first_result:
                 print(f"[{query}] ✗ Could not find any clickable product link")
-                self.driver.save_screenshot(f"no_result_{query.replace(' ', '_')}.png")
+                sanitized_query = self.sanitize_filename(query)
+                self.driver.save_screenshot(f"no_result_{sanitized_query}.png")
                 return {
                     "query": query,
                     "url": None,
@@ -169,11 +193,10 @@ class TorScraper:
                 print(f"[{query}] Clicking first result...")
                 first_result.click()
             except Exception as e:
-                # If regular click fails, use JavaScript click
                 print(f"[{query}] Regular click failed, trying JavaScript click...")
                 self.driver.execute_script("arguments[0].click();", first_result)
 
-            time.sleep(5)  # Wait for product page to load
+            time.sleep(5)
 
             # Verify we're on a product page
             current_url = self.driver.current_url
@@ -191,10 +214,11 @@ class TorScraper:
 
         except Exception as e:
             print(f"[{query}] ✗ Error: {e}")
-            self.driver.save_screenshot(f"error_{query.replace(' ', '_')}.png")
+            sanitized_query = self.sanitize_filename(query)
+            self.driver.save_screenshot(f"error_{sanitized_query}.png")
 
             # Save page source for debugging
-            with open(f"page_source_{query.replace(' ', '_')}.html", "w", encoding="utf-8") as f:
+            with open(Path("data") / f"page_source_{sanitized_query}.html", "w", encoding="utf-8") as f:
                 f.write(self.driver.page_source)
             print(f"[{query}] Page source saved for debugging")
 
@@ -258,6 +282,7 @@ def main():
     queries = [
         "9780064450836",
         "python programming book",
+        "web/scraping: guide?",  # Test sanitization with invalid characters
     ]
 
     scraper = TorScraper(queries=queries, headless=False)
@@ -293,8 +318,10 @@ def main():
                 print(f"  Title: {result['title']}")
                 print(f"  HTML: {len(result['html'])} bytes")
 
-                # Save HTML
-                filename = f"product_{query.replace(' ', '_')[:30]}.html"
+                # Sanitize query for filename
+                sanitized_query = scraper.sanitize_filename(query)
+                filename = Path("data") / f"product_{sanitized_query}.html"
+
                 with open(filename, "w", encoding="utf-8") as f:
                     f.write(result['html'])
                 print(f"  Saved: {filename}\n")
