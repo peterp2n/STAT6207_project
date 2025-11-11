@@ -13,7 +13,7 @@ def main():
     arguments = {
         "db_path": Path("data") / "Topic1_dataset.sqlite",
         "headless": False,  # Set to True for headless mode
-        "json_folder": Path("data") / "scrapes_v1",
+        "json_folder": Path("data") / "scrapes",
     }
 
     scraper = TorScraper(arguments)
