@@ -37,12 +37,12 @@ class Data:
 
     def load_queries(self):
         if all((self.table_holder, self.table_holder.get("products") is not None)):
-
-            self.queries = (
-                self.table_holder.get("products")
-                .filter(
-                    (pl.col("barcode2").str.contains(r"^978")) & (pl.col("barcode2").str.len_chars() == 13)
-                )
-                .unique(maintain_order=True)
-                .collect()["barcode2"]
-            )
+            self.queries = ["9780007371082", "9780064450836"]
+            # self.queries = (
+            #     self.table_holder.get("products")
+            #     .filter(
+            #         (pl.col("barcode2").str.contains(r"^978")) & (pl.col("barcode2").str.len_chars() == 13)
+            #     )
+            #     .unique(maintain_order=True)
+            #     .collect()["barcode2"]
+            # )
