@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
@@ -7,14 +7,15 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from src.stat6207_project.scraper.Data import Data
 from typing import List, Optional, Dict
 import time
 import re
 
 
 @dataclass
-class TorScraper:
-    queries: List[str]
+class TorScraper(Data):
+    queries: List[str] = field(default_factory=list, init=False)
     headless: bool = False
     driver: Optional[webdriver.Firefox] = None
 
@@ -279,14 +280,14 @@ class TorScraper:
 
 
 def main():
-    # List of queries to scrape
-    queries = [
-        "9780064450836",
-        "python programming book",
-        "web/scraping: guide?",  # Test sanitization with invalid characters
-    ]
+    arguments = {
+        "db_path": Path("data") / "Topic1_dataset.sqlite",
+        "headless": True,
+    }
 
-    scraper = TorScraper(queries=queries, headless=False)
+    scraper = TorScraper(arguments)
+    scraper.load_all_tables()  # Loads tables into table_holder
+    scraper.load_queries()     # Loads queries from products table into scraper.queries
 
     try:
         # Create browser
