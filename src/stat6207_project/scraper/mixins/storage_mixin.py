@@ -7,10 +7,15 @@ class StorageMixin:
     """Handles saving scraped data to disk"""
 
     def save_result(self, result: Dict) -> bool:
-        """Save a single scrape result immediately after scraping"""
+        """Save a single scrape result immediately after scraping
+
+        Success: Saves HTML to json_folder/success/product_{safe_query}/
+        Failure: Creates empty folder at json_folder/fail/product_{safe_query}/
+        """
         try:
             query = result['query']
             status = result['status']
+            safe_query = query.replace(' ', '_')[:30]
 
             if status == "success":
                 print(f"✓ {query}")
@@ -18,9 +23,8 @@ class StorageMixin:
                 print(f"  Title: {result['title']}")
                 print(f"  HTML: {len(result['html'])} bytes")
 
-                # Save HTML
-                safe_query = query.replace(' ', '_')[:30]
-                folder = self.args.get("json_folder") / f"product_{safe_query}"
+                # Save HTML to success folder
+                folder = self.args.get("json_folder") / "success" / f"product_{safe_query}"
                 folder.mkdir(parents=True, exist_ok=True)
 
                 filename = folder / f"product_{safe_query}.html"
@@ -28,8 +32,14 @@ class StorageMixin:
                     f.write(result['html'])
                 print(f"  Saved: {filename}\n")
                 return True
+
             else:
-                print(f"✗ {query} - Status: {status}\n")
+                # Create empty fail folder but don't save HTML
+                folder = self.args.get("json_folder") / "fail" / f"product_{safe_query}"
+                folder.mkdir(parents=True, exist_ok=True)
+
+                print(f"✗ {query} - Status: {status}")
+                print(f"  Empty folder created: {folder}\n")
                 return False
 
         except Exception as e:
