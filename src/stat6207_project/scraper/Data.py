@@ -10,6 +10,7 @@ class Data:
     args : dict = field(default_factory=dict)
     table_holder: dict[str, pl.DataFrame] = field(default_factory=dict)
     _db_path: Optional[Path] = field(default=None, init=False)
+    queries: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         self._db_path = self.args.get("db_path", "")
@@ -27,9 +28,20 @@ class Data:
             for table_name in table_names:
                 query = f"SELECT * FROM {table_name}"
                 try:
-                    df = pl.read_database(query=query, connection=conn)
+                    df = pl.read_database(query=query, connection=conn).lazy()
                 except:
                     raise ValueError(f"Failed to load table: {table_name}")
-                print(f"Loaded {len(df)} rows from table '{table_name}'")
+                print(f"Loaded {len(df.collect())} rows from table '{table_name}'")
 
                 self.table_holder[table_name] = df
+
+    def load_queries(self):
+        if not all((self.table_holder, self.table_holder.get("products") is not None)):
+            self.queries = (
+                self.table_holder.get("products")
+                .filter(
+                    (pl.col("barcode2").str.contains(r"^978")) & (pl.col("barcode2").str.len_chars() == 13)
+                )
+                .unique(maintain_order=True)
+                .collect()["barcode2"]
+            )
