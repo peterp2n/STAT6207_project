@@ -11,6 +11,7 @@ from src.stat6207_project.scraper.Data import Data
 from typing import List, Optional, Dict
 from webdriver_manager.firefox import GeckoDriverManager
 import time
+import random
 
 
 @dataclass
@@ -20,13 +21,23 @@ class TorScraper(Data):
     driver: Optional[webdriver.Firefox] = field(default=None, init=False)
 
     def create_driver(self) -> bool:
-        """Create a single Firefox/Tor browser instance"""
+        """Create a single Firefox/Tor browser instance with anti-detection"""
         firefox_options = Options()
         if self.headless:
             firefox_options.add_argument("--headless")
 
-        firefox_options.set_preference("general.useragent.override",
-                                       "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0")
+        # Randomize user agent from pool
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:118.0) Gecko/20100101 Firefox/118.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7; rv:115.0) Gecko/20100101 Firefox/115.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/109.0",
+        ]
+        firefox_options.set_preference("general.useragent.override", random.choice(user_agents))
+
+        # Anti-detection preferences
+        firefox_options.set_preference("dom.webdriver.enabled", False)
+        firefox_options.set_preference("useAutomationExtension", False)
 
         service = Service(GeckoDriverManager().install())
         binary = Path("/Applications/Tor Browser.app/Contents/MacOS/firefox")
@@ -62,18 +73,98 @@ class TorScraper(Data):
         except:
             print(f"[{query}] Tor already connected")
 
+    def detect_challenge_type(self) -> str:
+        """Detect what type of Amazon challenge page we're on"""
+        page_source = self.driver.page_source.lower()
+
+        # Check for "Continue Shopping" button challenge
+        if "continue shopping" in page_source and "/errors/validatecaptcha" in page_source:
+            return "continue_button"
+
+        # Check for traditional CAPTCHA with image
+        if "captcha" in page_source and "captchacharacters" in page_source:
+            return "image_captcha"
+
+        # Check for CAPTCHA by URL pattern
+        if "api-services-support.amazon.com" in self.driver.current_url:
+            return "image_captcha"
+
+        return "none"
+
+    def handle_continue_shopping(self, query: str) -> bool:
+        """Automatically click 'Continue shopping' button if present"""
+        try:
+            # Multiple possible selectors for the button
+            button_selectors = [
+                (By.CSS_SELECTOR, "button[type='submit'][alt='Continue shopping']"),
+                (By.CSS_SELECTOR, "button.a-button-text"),
+                (By.XPATH, "//button[contains(text(), 'Continue shopping')]"),
+                (By.XPATH, "//form[@action='/errors/validateCaptcha']//button[@type='submit']"),
+            ]
+
+            wait = WebDriverWait(self.driver, 5)
+
+            for selector_type, selector_value in button_selectors:
+                try:
+                    button = wait.until(
+                        EC.element_to_be_clickable((selector_type, selector_value))
+                    )
+
+                    print(f"[{query}] Found 'Continue shopping' button, clicking...")
+
+                    # Add slight random delay to appear human-like
+                    time.sleep(random.uniform(1.0, 2.5))
+
+                    # Try regular click first
+                    try:
+                        button.click()
+                    except:
+                        # Fallback to JavaScript click
+                        self.driver.execute_script("arguments[0].click();", button)
+
+                    print(f"[{query}] ✓ Button clicked, waiting for redirect...")
+
+                    # Wait for page to load after button click
+                    time.sleep(random.uniform(3, 5))
+
+                    return True
+
+                except:
+                    continue
+
+            print(f"[{query}] ✗ Could not find 'Continue shopping' button")
+            return False
+
+        except Exception as e:
+            print(f"[{query}] Error handling continue button: {e}")
+            return False
+
     def search_amazon(self, query: str) -> bool:
-        """Navigate to Amazon and perform search"""
+        """Navigate to Amazon and perform search with challenge handling"""
         print(f"[{query}] Navigating to Amazon...")
         self.driver.get("https://www.amazon.com/ref=nav_logo")
-        time.sleep(5)
+        time.sleep(random.uniform(4, 6))
 
         print(f"[{query}] Current URL: {self.driver.current_url}")
 
-        # Check for CAPTCHA
-        if "captcha" in self.driver.page_source.lower():
-            print(f"[{query}] ⚠️  CAPTCHA detected!")
+        # Detect and handle challenges
+        challenge_type = self.detect_challenge_type()
+
+        if challenge_type == "continue_button":
+            print(f"[{query}] ⚠️  Continue shopping challenge detected")
+            if self.handle_continue_shopping(query):
+                # After clicking, check again for any remaining challenges
+                time.sleep(2)
+                challenge_type = self.detect_challenge_type()
+            else:
+                self.driver.save_screenshot(f"continue_fail_{query.replace(' ', '_')}.png")
+                return False
+
+        if challenge_type == "image_captcha":
+            print(f"[{query}] ⚠️  Image CAPTCHA detected!")
             self.driver.save_screenshot(f"captcha_{query.replace(' ', '_')}.png")
+            # Optional: Add manual solving here
+            # input(f"[{query}] Solve CAPTCHA and press Enter to continue...")
             return False
 
         # Find search box
@@ -88,11 +179,21 @@ class TorScraper(Data):
                 search_box = wait.until(
                     EC.element_to_be_clickable((selector_type, selector_value))
                 )
+
+                # Human-like typing with random delays
                 search_box.clear()
-                search_box.send_keys(query)
+                time.sleep(random.uniform(0.5, 1.0))
+
+                # Type with slight delays between characters (optional but more human-like)
+                for char in query:
+                    search_box.send_keys(char)
+                    time.sleep(random.uniform(0.05, 0.15))
+
+                time.sleep(random.uniform(0.5, 1.0))
                 search_box.send_keys(Keys.RETURN)
+
                 print(f"[{query}] Search submitted")
-                time.sleep(5)  # Increased wait for results to load
+                time.sleep(random.uniform(4, 6))
                 return True
             except:
                 continue
@@ -101,17 +202,47 @@ class TorScraper(Data):
         return False
 
     def click_first_result(self, query: str) -> Optional[Dict]:
-        """Click first search result and get product page"""
+        """Click first search result and get product page with challenge handling"""
         wait = WebDriverWait(self.driver, 30)
 
         try:
             # Wait for results container
             wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.s-main-slot")))
-            print(f"[{query}] Results loaded, looking for first product link...")
+            print(f"[{query}] Results loaded")
 
-            # Scroll to ensure element is in view
+            # Check for challenges on search results page
+            challenge_type = self.detect_challenge_type()
+            if challenge_type == "continue_button":
+                print(f"[{query}] Challenge detected on results page, handling...")
+                if not self.handle_continue_shopping(query):
+                    return {
+                        "query": query,
+                        "url": None,
+                        "html": None,
+                        "title": None,
+                        "status": "challenge_failed"
+                    }
+                # Wait after handling challenge
+                time.sleep(random.uniform(2, 3))
+                # Re-verify results are still loaded
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.s-main-slot")))
+
+            elif challenge_type == "image_captcha":
+                print(f"[{query}] ⚠️  Image CAPTCHA on results page")
+                self.driver.save_screenshot(f"captcha_results_{query.replace(' ', '_')}.png")
+                return {
+                    "query": query,
+                    "url": None,
+                    "html": None,
+                    "title": None,
+                    "status": "captcha_blocked"
+                }
+
+            print(f"[{query}] Looking for first product link...")
+
+            # Scroll to ensure elements are in view
             self.driver.execute_script("window.scrollTo(0, 300);")
-            time.sleep(2)
+            time.sleep(random.uniform(1.5, 2.5))
 
             # Try multiple selectors for the first result link
             selectors = [
@@ -164,7 +295,7 @@ class TorScraper(Data):
 
             # Scroll element into view and click
             self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", first_result)
-            time.sleep(1)
+            time.sleep(random.uniform(0.8, 1.5))
 
             # Try regular click first
             try:
@@ -175,12 +306,50 @@ class TorScraper(Data):
                 print(f"[{query}] Regular click failed, trying JavaScript click...")
                 self.driver.execute_script("arguments[0].click();", first_result)
 
-            time.sleep(5)  # Wait for product page to load
+            # Wait for page navigation
+            time.sleep(random.uniform(4, 6))
+
+            # Check for challenges on product page
+            current_url = self.driver.current_url
+            print(f"[{query}] Navigated to: {current_url}")
+
+            challenge_type = self.detect_challenge_type()
+            if challenge_type == "continue_button":
+                print(f"[{query}] Challenge detected on product page, handling...")
+                if not self.handle_continue_shopping(query):
+                    return {
+                        "query": query,
+                        "url": current_url,
+                        "html": None,
+                        "title": None,
+                        "status": "challenge_failed_product_page"
+                    }
+                # Wait after handling challenge
+                time.sleep(random.uniform(2, 4))
+                current_url = self.driver.current_url
+                print(f"[{query}] After challenge, now at: {current_url}")
+
+            elif challenge_type == "image_captcha":
+                print(f"[{query}] ⚠️  Image CAPTCHA on product page")
+                self.driver.save_screenshot(f"captcha_product_{query.replace(' ', '_')}.png")
+                return {
+                    "query": query,
+                    "url": current_url,
+                    "html": None,
+                    "title": None,
+                    "status": "captcha_blocked_product_page"
+                }
 
             # Verify we're on a product page
-            current_url = self.driver.current_url
             if "/dp/" not in current_url:
                 print(f"[{query}] ⚠️  Warning: May not be on product page. URL: {current_url}")
+
+            # Wait for product page to fully load
+            try:
+                wait.until(EC.presence_of_element_located((By.ID, "productTitle")))
+                print(f"[{query}] ✓ Product page loaded successfully")
+            except:
+                print(f"[{query}] Warning: Product title not found, but continuing...")
 
             # Get product page data
             return {
@@ -196,13 +365,16 @@ class TorScraper(Data):
             self.driver.save_screenshot(f"error_{query.replace(' ', '_')}.png")
 
             # Save page source for debugging
-            with open(f"page_source_{query.replace(' ', '_')}.html", "w", encoding="utf-8") as f:
-                f.write(self.driver.page_source)
-            print(f"[{query}] Page source saved for debugging")
+            try:
+                with open(f"page_source_{query.replace(' ', '_')}.html", "w", encoding="utf-8") as f:
+                    f.write(self.driver.page_source)
+                print(f"[{query}] Page source saved for debugging")
+            except:
+                pass
 
             return {
                 "query": query,
-                "url": None,
+                "url": self.driver.current_url if self.driver else None,
                 "html": None,
                 "title": None,
                 "status": "error"
@@ -285,10 +457,11 @@ class TorScraper(Data):
             # Print current progress with counts
             print(f"📊 Progress: {i}/{total} | ✓ Success: {successful} | ✗ Failed: {failed}")
 
-            # Small pause between queries
+            # Small pause between queries with randomization
             if i < total:
-                print(f"\nWaiting 3 seconds before next query...")
-                time.sleep(3)
+                wait_time = random.uniform(2.5, 4.0)
+                print(f"\nWaiting {wait_time:.1f} seconds before next query...")
+                time.sleep(wait_time)
 
         # Print final summary
         print(f"\n{'=' * 60}")
@@ -308,14 +481,15 @@ class TorScraper(Data):
 def main():
     arguments = {
         "db_path": Path("data") / "Topic1_dataset.sqlite",
-        "headless": True,
+        "headless": False,  # Set to True for headless mode
         "json_folder": Path("data") / "scrapes",
     }
 
     scraper = TorScraper(arguments)
     scraper.load_all_tables()
-    que = scraper.table_holder.get("products").select("barcode2").unique(maintain_order=True).collect().to_series().to_list()
-    scraper.load_queries(queries=que)
+    que = scraper.table_holder.get("products").select("barcode2").unique(
+        maintain_order=True).collect().to_series().to_list()
+    scraper.load_queries(queries=que[:5])
 
     try:
         # Create browser
