@@ -260,6 +260,7 @@ def main():
     arguments = {
         "db_path": Path("data") / "Topic1_dataset.sqlite",
         "headless": True,
+        "json_folder": Path("data") / "scrapes",
     }
 
     scraper = TorScraper(arguments)
@@ -298,7 +299,8 @@ def main():
                 print(f"  HTML: {len(result['html'])} bytes")
 
                 # Save HTML
-                filename = f"product_{query.replace(' ', '_')[:30]}.html"
+                filename = scraper.args.get("json_folder") / f"product_{query.replace(' ', '_')[:30]}" / f"product_{query.replace(' ', '_')[:30]}.html"
+                filename.parent.mkdir(parents=True, exist_ok=True)
                 with open(filename, "w", encoding="utf-8") as f:
                     f.write(result['html'])
                 print(f"  Saved: {filename}\n")
