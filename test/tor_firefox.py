@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
@@ -7,16 +7,17 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from src.stat6207_project.scraper.Data import Data
 from typing import List, Optional, Dict
 from webdriver_manager.firefox import GeckoDriverManager
 import time
 
 
 @dataclass
-class TorScraper:
-    queries: List[str]
-    headless: bool = False
-    driver: Optional[webdriver.Firefox] = None
+class TorScraper(Data):
+    queries: List[str] = field(default_factory=list, init=False)
+    headless: bool = field(default=False, init=False)
+    driver: Optional[webdriver.Firefox] = field(default=None, init=False)
 
     def create_driver(self) -> bool:
         """Create a single Firefox/Tor browser instance"""
@@ -255,13 +256,15 @@ class TorScraper:
 
 
 def main():
-    # List of queries to scrape
-    queries = [
-        "9780064450836",
-        "python programming book",
-    ]
 
-    scraper = TorScraper(queries=queries, headless=False)
+    arguments = {
+        "db_path": Path("data") / "Topic1_dataset.sqlite",
+        "headless": True,
+    }
+
+    scraper = TorScraper(arguments)
+    scraper.load_all_tables()
+    scraper.load_queries()
 
     try:
         # Create browser
