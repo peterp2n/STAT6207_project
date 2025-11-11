@@ -256,12 +256,13 @@ class TorScraper:
 
     def scrape_all(self) -> List[Dict]:
         """Scrape all queries sequentially"""
-        results = []
+        num_queries = len(self.queries)
+        results = [None] * num_queries
 
         for i, query in enumerate(self.queries, 1):
-            print(f"\n📋 Processing query {i}/{len(self.queries)}: {query}")
+            print(f"\n📋 Processing query {i}/{num_queries}: {query}")
             result = self.scrape_one(query)
-            results.append(result)
+            results[i] = result
 
             # Small pause between queries
             if i < len(self.queries):
