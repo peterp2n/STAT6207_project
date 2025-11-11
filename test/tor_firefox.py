@@ -232,19 +232,69 @@ class TorScraper(Data):
             print(f"[{query}] ✗ Fatal error: {e}")
             return {"query": query, "status": "fatal_error", "url": None, "html": None}
 
+    def save_result(self, result: Dict) -> bool:
+        """Save a single scrape result immediately after scraping"""
+        try:
+            query = result['query']
+            status = result['status']
+
+            if status == "success":
+                print(f"✓ {query}")
+                print(f"  URL: {result['url']}")
+                print(f"  Title: {result['title']}")
+                print(f"  HTML: {len(result['html'])} bytes")
+
+                # Save HTML
+                safe_query = query.replace(' ', '_')[:30]
+                folder = self.args.get("json_folder") / f"product_{safe_query}"
+                folder.mkdir(parents=True, exist_ok=True)
+
+                filename = folder / f"product_{safe_query}.html"
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(result['html'])
+                print(f"  Saved: {filename}\n")
+                return True
+            else:
+                print(f"✗ {query} - Status: {status}\n")
+                return False
+
+        except Exception as e:
+            print(f"✗ Error saving result for {result.get('query', 'unknown')}: {e}")
+            return False
+
     def scrape_all(self) -> List[Dict]:
-        """Scrape all queries sequentially"""
+        """Scrape all queries sequentially and save each result immediately"""
         results = []
+        successful = 0
+        failed = 0
+        total = len(self.queries)
 
         for i, query in enumerate(self.queries, 1):
-            print(f"\n📋 Processing query {i}/{len(self.queries)}: {query}")
+            print(f"\n📋 Processing query {i}/{total}: {query}")
+
+            # Scrape the query
             result = self.scrape_one(query)
             results.append(result)
 
+            # Save immediately after scraping and update counters
+            if self.save_result(result):
+                successful += 1
+            else:
+                failed += 1
+
+            # Print current progress with counts
+            print(f"📊 Progress: {i}/{total} | ✓ Success: {successful} | ✗ Failed: {failed}")
+
             # Small pause between queries
-            if i < len(self.queries):
+            if i < total:
                 print(f"\nWaiting 3 seconds before next query...")
                 time.sleep(3)
+
+        # Print final summary
+        print(f"\n{'=' * 60}")
+        print(f"COMPLETED: {successful} successful, {failed} failed out of {total} total")
+        print(f"Success rate: {successful / total * 100:.1f}%")
+        print(f"{'=' * 60}\n")
 
         return results
 
@@ -256,7 +306,6 @@ class TorScraper(Data):
 
 
 def main():
-
     arguments = {
         "db_path": Path("data") / "Topic1_dataset.sqlite",
         "headless": True,
@@ -276,41 +325,15 @@ def main():
         # Handle Tor connection (only once at the start)
         scraper.handle_tor_connection("initial")
 
-        # Scrape all queries sequentially
+        # Scrape all queries - results are saved incrementally
         start = time.time()
         results = scraper.scrape_all()
         elapsed = time.time() - start
 
-        # Print summary
-        print(f"\n{'=' * 60}")
-        print(f"COMPLETED ALL TASKS in {elapsed:.1f}s")
-        print(f"{'=' * 60}\n")
-
-        successful = 0
-        for result in results:
-            query = result['query']
-            status = result['status']
-
-            if status == "success":
-                successful += 1
-                print(f"✓ {query}")
-                print(f"  URL: {result['url']}")
-                print(f"  Title: {result['title']}")
-                print(f"  HTML: {len(result['html'])} bytes")
-
-                # Save HTML
-                filename = scraper.args.get("json_folder") / f"product_{query.replace(' ', '_')[:30]}" / f"product_{query.replace(' ', '_')[:30]}.html"
-                filename.parent.mkdir(parents=True, exist_ok=True)
-                with open(filename, "w", encoding="utf-8") as f:
-                    f.write(result['html'])
-                print(f"  Saved: {filename}\n")
-            else:
-                print(f"✗ {query} - Status: {status}\n")
-
-        print(f"\nSuccess rate: {successful}/{len(results)}")
+        print(f"\nTotal execution time: {elapsed:.1f}s")
 
     except KeyboardInterrupt:
-        print("\n\n⚠️  Interrupted by user")
+        print("\n\n⚠️  Interrupted by user - partial results have been saved")
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
