@@ -314,7 +314,8 @@ def main():
 
     scraper = TorScraper(arguments)
     scraper.load_all_tables()
-    scraper.load_queries()
+    que = scraper.table_holder.get("products").select("barcode2").unique(maintain_order=True).collect().to_series().to_list()
+    scraper.load_queries(queries=que)
 
     try:
         # Create browser
