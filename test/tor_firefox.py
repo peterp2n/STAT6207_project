@@ -8,6 +8,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from typing import List, Optional, Dict
+from webdriver_manager.firefox import GeckoDriverManager
 import time
 
 
@@ -26,7 +27,7 @@ class TorScraper:
         firefox_options.set_preference("general.useragent.override",
                                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0")
 
-        service = Service(executable_path=Path("driver/geckodriver"))
+        service = Service(GeckoDriverManager().install())
         binary = Path("/Applications/Tor Browser.app/Contents/MacOS/firefox")
 
         if not binary.exists():
