@@ -247,6 +247,23 @@ def clean_price(text: str) -> Optional[float]:
     return None
 
 
+def clean_reading_age(text: str) -> Optional[str]:
+    """Extract only the 'number - number' age range pattern from reading age string."""
+    if text is None or (isinstance(text, str) and text.strip() == ''):
+        return None
+    if not isinstance(text, str):
+        return text
+    text = remove_invisible_chars(text)
+
+    # Pattern to match: digits, hyphen, digits (with optional spaces)
+    match = re.search(r'(\d+)\s*-\s*(\d+)', text)
+
+    if match:
+        # Return the pattern as "number - number" with consistent spacing
+        return f"{match.group(1)} - {match.group(2)}"
+    return None
+
+
 # ============================================================================
 # DATAFRAME CLEANING
 # ============================================================================
@@ -271,7 +288,7 @@ def clean_amazon_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     text_columns = [
         'asin', 'author', 'availability', 'barcode', 'best_sellers_rank',
         'book_format', 'description', 'edition', 'features', 'language',
-        'part_of_series', 'product_name', 'product_url', 'publisher', 'reading_age'
+        'part_of_series', 'product_name', 'product_url', 'publisher'
     ]
 
     for col in text_columns:
@@ -314,6 +331,10 @@ def clean_amazon_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     # Clean price (convert to float)
     if 'price' in df.columns:
         df['price'] = df['price'].apply(clean_price)
+
+    # Clean reading age (extract only "X - Y" pattern)
+    if 'reading_age' in df.columns:
+        df['reading_age'] = df['reading_age'].apply(clean_reading_age)
 
     # Parse dimensions into separate columns
     if 'dimensions' in df.columns:
@@ -396,4 +417,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
