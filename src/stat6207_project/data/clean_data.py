@@ -356,7 +356,8 @@ def clean_amazon_csv(
     print(f"Loaded {len(df)} rows with {len(df.columns)} columns")
 
     print("Cleaning data...")
-    df_cleaned = clean_amazon_dataframe(df)
+    # Drop duplicated rows based on 'isbn_13' after cleaning
+    df_cleaned = clean_amazon_dataframe(df).drop_duplicates(subset=["isbn_13"])
 
     # Create output directory if it doesn't exist
     output_file.parent.mkdir(parents=True, exist_ok=True)
