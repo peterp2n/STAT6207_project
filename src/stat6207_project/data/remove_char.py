@@ -1,419 +1,226 @@
-"""
-Data cleaning module for Amazon product data.
-
-This module provides functions to clean and standardize Amazon product data,
-including removing invisible Unicode characters, parsing dimensions, converting
-units, and standardizing date formats.
-"""
-
 import pandas as pd
 import re
 import unicodedata
 from datetime import datetime
-from typing import Optional, Dict
 from pathlib import Path
+from typing import Optional, Dict, Callable
 
 
-# ============================================================================
-# TEXT CLEANING
-# ============================================================================
-INVISIBLE_CHARS = {
-    '\u200b',  # Zero-width space
-    '\u200c',  # Zero-width non-joiner
-    '\u200d',  # Zero-width joiner
-    '\u200e',  # Left-to-right mark (LRM)
-    '\u200f',  # Right-to-left mark
-    '\u202a',  # Left-to-right embedding
-    '\u202b',  # Right-to-left embedding
-    '\u202c',  # Pop directional formatting
-    '\u202d',  # Left-to-right override
-    '\u202e',  # Right-to-left override
-    '\ufeff',  # Zero-width no-break space
-    '\u00a0',  # Non-breaking space
-}
+class DataCleaner:
+    INVISIBLE_CHARS = {
+        '\u200b', '\u200c', '\u200d', '\u200e', '\u200f',
+        '\u202a', '\u202b', '\u202c', '\u202d', '\u202e',
+        '\ufeff', '\u00a0'
+    }
+    CONVERSION_FACTORS = {
+        'cm_to_inches': 0.393701,
+        'pounds_to_grams': 453.592,
+        'ounces_to_grams': 28.3495
+    }
+    PATTERNS = {
+        'dimensions': r'([\d.]+)\s*x\s*([\d.]+)\s*x\s*([\d.]+)\s*(inches?|cm|centimeter|centimeters)?',
+        'rating': r'([\d.]+)\s+out of',
+        'rating_base': r'([\d.]+)\s+out of 5',
+        'number': r'([\d,]+)',
+        'price': r'([\d,]+\.?\d*)',
+        'age_range': r'(\d+)\s*-\s*(\d+)',
+        'pounds': r'([\d.]+)\s*pounds?',
+        'ounces': r'([\d.]+)\s*ounces?',
+    }
+    ID_COLUMNS = ['isbn_10', 'isbn_13', 'barcode', 'asin']
 
+    def __init__(self):
+        self.clean_map: Dict[str, Callable] = {
+            'asin': self.clean_text,
+            'author': self.clean_text,
+            'availability': self.clean_text,
+            'best_sellers_rank': self.clean_text,
+            'book_format': self.clean_text,
+            'description': self.clean_text,
+            'edition': self.clean_text,
+            'features': self.clean_text,
+            'language': self.clean_text,
+            'part_of_series': self.clean_text,
+            'product_name': self.clean_text,
+            'product_url': self.clean_text,
+            'publisher': self.clean_text,
+            'isbn_10': self.clean_isbn,
+            'isbn_13': self.clean_isbn,
+            'barcode': self.clean_isbn,
+            'number_of_reviews': self.clean_numeric,
+            'print_length': self.clean_numeric,
+            'rating': self.clean_rating,
+            'customer_reviews': self.clean_base_rating,
+            'publication_date': self.clean_publication_date,
+            'item_weight': self.clean_item_weight,
+            'price': self.clean_price,
+            'reading_age': self.clean_reading_age,
+        }
 
-def remove_invisible_chars(text: str) -> str:
-    """Remove all invisible Unicode characters and control characters from text."""
-    if not isinstance(text, str):
-        return text
-    text = ''.join(c for c in text if c not in INVISIBLE_CHARS)
-    text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)
-    text = ''.join(c for c in text if unicodedata.category(c)[0] != 'C')
-    return text.strip()
+    @staticmethod
+    def validate_text(func):
+        def wrapper(self, x):
+            if pd.isna(x) or (isinstance(x, str) and not x.strip()):
+                return None
+            if isinstance(x, str):
+                return func(self, x)
+            return x
+        return wrapper
 
+    @validate_text
+    def clean_text(self, text: str) -> Optional[str]:
+        cleaned = self.remove_invisible_chars(text)
+        return cleaned if cleaned else None
 
-# ============================================================================
-# DIMENSION PARSING
-# ============================================================================
-def parse_dimensions(dimension_str: Optional[str]) -> Dict[str, Optional[float]]:
-    """
-    Parse dimension string from Amazon and convert to inches if needed.
+    @validate_text
+    def clean_isbn(self, text: str) -> Optional[str]:
+        text = self.remove_invisible_chars(text)
+        text = text.replace('.0', '')
+        cleaned = re.sub(r'\D', '', text)
+        return cleaned if cleaned else None
 
-    FBA (Fulfillment by Amazon) Specification:
-    Amazon format: a x b x c
-    where:
-        a = length (longest side of packaged item)
-        b = width (median side of packaged item)
-        c = height (shortest side of packaged item)
-
-    Input format: "L x W x H inches" or "L x W x H cm"
-    Returns dict with length, width, height in inches (None if parsing fails)
-    """
-    result = {'length': None, 'width': None, 'height': None}
-
-    if not dimension_str or not isinstance(dimension_str, str):
-        return result
-
-    dimension_str = remove_invisible_chars(dimension_str)
-
-    # Extract numbers and unit
-    # Pattern: number x number x number [unit]
-    pattern = r'([\d.]+)\s*x\s*([\d.]+)\s*x\s*([\d.]+)\s*(inches?|cm|centimeter|centimeters)?'
-    match = re.search(pattern, dimension_str, re.IGNORECASE)
-
-    if not match:
-        return result
-
-    try:
-        dim1, dim2, dim3, unit = match.groups()
-        dim1, dim2, dim3 = float(dim1), float(dim2), float(dim3)
-
-        # Determine unit and convert to inches if needed
-        unit = unit.lower() if unit else 'inches'
-        conversion_factor = 1.0
-        if unit.startswith('cm'):
-            conversion_factor = 0.393701  # 1 cm = 0.393701 inches
-
-        dim1 *= conversion_factor
-        dim2 *= conversion_factor
-        dim3 *= conversion_factor
-
-        # FBA specification: a x b x c = length x width x height
-        result['length'] = round(dim1, 2)
-        result['width'] = round(dim2, 2)
-        result['height'] = round(dim3, 2)
-
-        return result
-    except (ValueError, TypeError):
-        return result
-
-
-# ============================================================================
-# FIELD-SPECIFIC CLEANING FUNCTIONS
-# ============================================================================
-def clean_text(text: str) -> Optional[str]:
-    """Remove invisible characters from text."""
-    if text is None or (isinstance(text, str) and text.strip() == ''):
+    @validate_text
+    def clean_numeric(self, text: str) -> Optional[int]:
+        match = re.search(self.PATTERNS['number'], text)
+        if match:
+            try:
+                return int(match.group(1).replace(',', ''))
+            except ValueError:
+                return None
         return None
-    if not isinstance(text, str):
-        return text
-    cleaned = remove_invisible_chars(text)
-    return cleaned if cleaned else None
 
-
-def clean_isbn(text: str) -> Optional[str]:
-    """Remove hyphens and non-digit characters from ISBN."""
-    if text is None or (isinstance(text, str) and text.strip() == ''):
+    @validate_text
+    def clean_rating(self, text: str) -> Optional[float]:
+        match = re.search(self.PATTERNS['rating'], text)
+        if match:
+            try:
+                return round(float(match.group(1)), 1)
+            except ValueError:
+                return None
         return None
-    if not isinstance(text, str):
-        return text
-    text = remove_invisible_chars(text)
-    cleaned = re.sub(r'\D', '', text)
-    return cleaned if cleaned else None
 
-
-def clean_number_of_reviews(text: str) -> Optional[int]:
-    """Extract number from 'X,XXX ratings' format."""
-    if text is None or (isinstance(text, str) and text.strip() == ''):
+    @validate_text
+    def clean_base_rating(self, text: str) -> Optional[float]:
+        match = re.search(self.PATTERNS['rating_base'], text)
+        if match:
+            try:
+                return round(float(match.group(1)), 1)
+            except ValueError:
+                return None
         return None
-    if not isinstance(text, str):
-        return text
-    text = remove_invisible_chars(text)
-    match = re.search(r'([\d,]+)', text)
-    if match:
+
+    @validate_text
+    def clean_publication_date(self, text: str) -> Optional[str]:
         try:
-            return int(match.group(1).replace(',', ''))
+            dt = datetime.strptime(text, '%B %d, %Y')
+            return dt.strftime('%Y-%m-%d')
         except ValueError:
             return None
-    return None
 
-
-def clean_rating(text: str) -> Optional[float]:
-    """Extract rating score from 'X.X out of 5 stars' format."""
-    if text is None or (isinstance(text, str) and text.strip() == ''):
-        return None
-    if not isinstance(text, str):
-        return text
-    text = remove_invisible_chars(text)
-    match = re.search(r'([\d.]+)\s+out of', text)
-    if match:
-        try:
-            return float(match.group(1))
-        except ValueError:
-            return None
-    return None
-
-
-def clean_customer_reviews(text: str) -> Optional[float]:
-    """Extract rating number from 'X out of 5' format."""
-    if text is None or (isinstance(text, str) and text.strip() == ''):
-        return None
-    if not isinstance(text, str):
-        return text
-    text = remove_invisible_chars(text)
-    match = re.search(r'([\d.]+)\s+out of 5', text)
-    if match:
-        try:
-            rating = float(match.group(1))
-            return round(rating, 1)
-        except ValueError:
-            return None
-    return None
-
-
-def clean_print_length(text: str) -> Optional[int]:
-    """Extract page number from 'X pages' format, handling comma-separated numbers."""
-    if text is None or (isinstance(text, str) and text.strip() == ''):
-        return None
-    if not isinstance(text, str):
-        return text
-    text = remove_invisible_chars(text)
-    match = re.search(r'([\d,]+)', text)
-    if match:
-        try:
-            return int(match.group(1).replace(',', ''))
-        except ValueError:
-            return None
-    return None
-
-
-def clean_publication_date(text: str) -> Optional[str]:
-    """Convert publication date from 'Month D, YYYY' format to 'YYYY-MM-DD' format."""
-    if text is None or (isinstance(text, str) and text.strip() == ''):
-        return None
-    if not isinstance(text, str):
-        return text
-    text = remove_invisible_chars(text)
-    try:
-        date_obj = datetime.strptime(text, '%B %d, %Y')
-        return date_obj.strftime('%Y-%m-%d')
-    except ValueError:
-        return None
-
-
-def clean_item_weight(text: str) -> Optional[float]:
-    """Convert item weight to grams. Handles 'X pounds, Y ounces' format."""
-    if text is None or (isinstance(text, str) and text.strip() == ''):
-        return None
-    if not isinstance(text, str):
-        return text
-    text = remove_invisible_chars(text)
-    try:
-        # Extract pounds and ounces values
-        pounds_match = re.search(r'([\d.]+)\s*pounds?', text)
-        ounces_match = re.search(r'([\d.]+)\s*ounces?', text)
+    @validate_text
+    def clean_item_weight(self, text: str) -> Optional[float]:
         total_grams = 0.0
-
-        if pounds_match:
-            pounds = float(pounds_match.group(1))
-            total_grams += pounds * 453.592  # 1 pound = 453.592 grams
-
-        if ounces_match:
-            ounces = float(ounces_match.group(1))
-            total_grams += ounces * 28.3495  # 1 ounce = 28.3495 grams
-
-        if total_grams > 0:
-            return round(total_grams, 2)
-        return None
-    except (ValueError, AttributeError):
-        return None
-
-
-def clean_price(text: str) -> Optional[float]:
-    """Extract price value from price string."""
-    if text is None or (isinstance(text, str) and text.strip() == ''):
-        return None
-    if not isinstance(text, str):
-        return text
-    text = remove_invisible_chars(text)
-    # Extract numeric value, handling comma as thousands separator
-    match = re.search(r'([\d,]+\.?\d*)', text)
-    if match:
         try:
-            return float(match.group(1).replace(',', ''))
-        except ValueError:
+            p_match = re.search(self.PATTERNS['pounds'], text)
+            o_match = re.search(self.PATTERNS['ounces'], text)
+            if p_match:
+                total_grams += float(p_match.group(1)) * self.CONVERSION_FACTORS['pounds_to_grams']
+            if o_match:
+                total_grams += float(o_match.group(1)) * self.CONVERSION_FACTORS['ounces_to_grams']
+            return round(total_grams, 2) if total_grams else None
+        except Exception:
             return None
-    return None
 
-
-def clean_reading_age(text: str) -> Optional[str]:
-    """Extract only the 'number - number' age range pattern from reading age string."""
-    if text is None or (isinstance(text, str) and text.strip() == ''):
+    @validate_text
+    def clean_price(self, text: str) -> Optional[float]:
+        match = re.search(self.PATTERNS['price'], text)
+        if match:
+            try:
+                return float(match.group(1).replace(',', ''))
+            except ValueError:
+                return None
         return None
-    if not isinstance(text, str):
-        return text
-    text = remove_invisible_chars(text)
 
-    # Pattern to match: digits, hyphen, digits (with optional spaces)
-    match = re.search(r'(\d+)\s*-\s*(\d+)', text)
+    @validate_text
+    def clean_reading_age(self, text: str) -> Optional[str]:
+        match = re.search(self.PATTERNS['age_range'], text)
+        if match:
+            return f"{match.group(1)} - {match.group(2)}"
+        return None
 
-    if match:
-        # Return the pattern as "number - number" with consistent spacing
-        return f"{match.group(1)} - {match.group(2)}"
-    return None
+    @staticmethod
+    def remove_invisible_chars(text: str) -> str:
+        return ''.join(
+            c for c in text if c not in DataCleaner.INVISIBLE_CHARS and unicodedata.category(c)[0] != 'C'
+        ).strip()
 
+    @staticmethod
+    def fix_numeric_series(series: pd.Series) -> pd.Series:
+        def fix_value(x):
+            if pd.isna(x):
+                return None
+            if isinstance(x, str):
+                return x
+            try:
+                return f"{int(x)}"
+            except Exception:
+                return str(x)
 
-# ============================================================================
-# DATAFRAME CLEANING
-# ============================================================================
-def clean_amazon_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Clean Amazon product data DataFrame.
+        return series.apply(fix_value).astype('string')
 
-    Applies field-specific cleaning functions to each column and handles
-    dimension parsing to split dimensions into length, width, height.
+    @classmethod
+    def parse_dimensions(cls, dimension_str: Optional[str]) -> Dict[str, Optional[float]]:
+        result = {'length': None, 'width': None, 'height': None}
+        if not dimension_str or not isinstance(dimension_str, str):
+            return result
+        dimension_str = cls.remove_invisible_chars(dimension_str)
+        pattern = re.compile(cls.PATTERNS['dimensions'], re.IGNORECASE)
+        match = pattern.search(dimension_str)
+        if not match:
+            return result
+        try:
+            dim1, dim2, dim3, unit = match.groups()
+            dims = [float(dim1), float(dim2), float(dim3)]
+            unit = unit.lower() if unit else 'inches'
+            if unit.startswith('cm'):
+                factor = cls.CONVERSION_FACTORS['cm_to_inches']
+                dims = [d * factor for d in dims]
+            result['length'], result['width'], result['height'] = [round(d, 2) for d in dims]
+        except Exception:
+            pass
+        return result
 
-    Args:
-        df: Pandas DataFrame with raw Amazon product data
+    def clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        # Fix numeric ID columns first
+        for col in self.ID_COLUMNS:
+            if col in df.columns:
+                df[col] = self.fix_numeric_series(df[col])
+        # Apply cleaning functions
+        for col, func in self.clean_map.items():
+            if col in df.columns:
+                df[col] = df[col].apply(func)
+        # Parse dimensions
+        if 'dimensions' in df.columns:
+            dims = df['dimensions'].apply(self.parse_dimensions)
+            df['length'] = dims.apply(lambda d: d['length'])
+            df['width'] = dims.apply(lambda d: d['width'])
+            df['height'] = dims.apply(lambda d: d['height'])
+            df.drop(columns=['dimensions'], inplace=True)
+        return df
 
-    Returns:
-        Cleaned Pandas DataFrame with standardized columns
-    """
-
-    # Make a copy to avoid modifying the original
-    df = df.copy()
-
-    # Apply text cleaning to all string columns first
-    text_columns = [
-        'asin', 'author', 'availability', 'barcode', 'best_sellers_rank',
-        'book_format', 'description', 'edition', 'features', 'language',
-        'part_of_series', 'product_name', 'product_url', 'publisher'
-    ]
-
-    for col in text_columns:
-        if col in df.columns:
-            df[col] = df[col].apply(clean_text)
-
-    # Clean ISBN columns
-    if 'isbn_10' in df.columns:
-        df['isbn_10'] = df['isbn_10'].apply(clean_isbn)
-
-    if 'isbn_13' in df.columns:
-        df['isbn_13'] = df['isbn_13'].apply(clean_isbn)
-
-    if 'barcode' in df.columns:
-        df['barcode'] = df['barcode'].apply(clean_isbn)
-
-    # Clean numeric review count
-    if 'number_of_reviews' in df.columns:
-        df['number_of_reviews'] = df['number_of_reviews'].apply(clean_number_of_reviews)
-
-    # Clean ratings (convert to float)
-    if 'rating' in df.columns:
-        df['rating'] = df['rating'].apply(clean_rating)
-
-    if 'customer_reviews' in df.columns:
-        df['customer_reviews'] = df['customer_reviews'].apply(clean_customer_reviews)
-
-    # Clean print length (convert to integer pages)
-    if 'print_length' in df.columns:
-        df['print_length'] = df['print_length'].apply(clean_print_length)
-
-    # Clean publication date (convert to YYYY-MM-DD)
-    if 'publication_date' in df.columns:
-        df['publication_date'] = df['publication_date'].apply(clean_publication_date)
-
-    # Clean item weight (convert to grams)
-    if 'item_weight' in df.columns:
-        df['item_weight'] = df['item_weight'].apply(clean_item_weight)
-
-    # Clean price (convert to float)
-    if 'price' in df.columns:
-        df['price'] = df['price'].apply(clean_price)
-
-    # Clean reading age (extract only "X - Y" pattern)
-    if 'reading_age' in df.columns:
-        df['reading_age'] = df['reading_age'].apply(clean_reading_age)
-
-    # Parse dimensions into separate columns
-    if 'dimensions' in df.columns:
-        # Parse dimensions and create new columns
-        dimensions_parsed = df['dimensions'].apply(parse_dimensions)
-
-        # Extract length, width, height from parsed dimensions
-        df['length'] = dimensions_parsed.apply(lambda d: d['length'])
-        df['width'] = dimensions_parsed.apply(lambda d: d['width'])
-        df['height'] = dimensions_parsed.apply(lambda d: d['height'])
-
-        # Drop the original dimensions column
-        df = df.drop('dimensions', axis=1)
-
-    return df
-
-
-def clean_amazon_csv(
-    input_path: str = 'data/amazon.csv',
-    output_path: str = 'data/amazon_cleaned.csv'
-) -> pd.DataFrame:
-    """
-    Load, clean, and save Amazon product data.
-
-    Args:
-        input_path: Path to input CSV file
-        output_path: Path to save cleaned CSV file
-
-    Returns:
-        Cleaned Pandas DataFrame
-    """
-    input_file = Path(input_path)
-    output_file = Path(output_path)
-
-    if not input_file.exists():
-        raise FileNotFoundError(f"Input file not found: {input_file.resolve()}")
-
-    print(f"Loading data from {input_path}...")
-    df = pd.read_csv(input_path)
-    print(f"Loaded {len(df)} rows with {len(df.columns)} columns")
-
-    print("Cleaning data...")
-    # Drop duplicated rows based on 'isbn_13' after cleaning
-    df_cleaned = clean_amazon_dataframe(df).drop_duplicates(subset=["isbn_13"])
-
-    # Create output directory if it doesn't exist
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-
-    print(f"Saving cleaned data to {output_path}...")
-    df_cleaned.to_csv(output_path, index=False)
-    print(f"✓ Saved {len(df_cleaned)} rows to {output_path}")
-
-    return df_cleaned
-
-
-# ============================================================================
-# MAIN EXECUTION
-# ============================================================================
-def main():
-    """Main execution function."""
-    try:
-        df_cleaned = clean_amazon_csv(
-            input_path='data/amazon.csv',
-            output_path='data/amazon_cleaned.csv'
-        )
-
-        print(f"\n{'=' * 60}")
-        print("Data cleaning completed!")
-        print(f"  Rows: {len(df_cleaned)}")
-        print(f"  Columns: {len(df_cleaned.columns)}")
-        print(f"  Column names: {', '.join(df_cleaned.columns)}")
-        print(f"{'=' * 60}")
-
-    except FileNotFoundError as e:
-        print(f"\n❌ Error: {e}")
-    except Exception as e:
-        print(f"\n❌ Error cleaning data: {e}")
-        raise
-
+    def load_and_clean_csv(self, input_path: str, output_path: Optional[str] = None, deduplicate_on: Optional[list[str]] = None) -> pd.DataFrame:
+        df = pd.read_csv(input_path)
+        df = self.clean_dataframe(df)
+        if deduplicate_on:
+            df = df.drop_duplicates(subset=deduplicate_on)
+        return df
 
 if __name__ == "__main__":
-    main()
+    cleaner = DataCleaner()
+    cleaned_df = cleaner.load_and_clean_csv(
+        input_path='data/amazon.csv',
+        output_path='data/amazon_cleaned.csv',
+        deduplicate_on=['isbn_13']
+    )
+    print(f"Cleaned {len(cleaned_df)} rows.")
