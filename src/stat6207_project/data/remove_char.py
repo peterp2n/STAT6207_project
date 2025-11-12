@@ -1,4 +1,4 @@
-import pandas as pd
+import polars as pl
 import re
 import unicodedata
 from datetime import datetime
@@ -58,29 +58,30 @@ class DataCleaner:
         }
 
     @staticmethod
-    def validate_text(func):
-        def wrapper(self, x):
-            if pd.isna(x) or (isinstance(x, str) and not x.strip()):
-                return None
-            if isinstance(x, str):
-                return func(self, x)
-            return x
-        return wrapper
+    def is_valid_text(x: Optional[str]) -> bool:
+        """Check if text is valid (not None and not empty after stripping)."""
+        return x is not None and isinstance(x, str) and bool(x.strip())
 
-    @validate_text
-    def clean_text(self, text: str) -> Optional[str]:
+    def clean_text(self, text: Optional[str]) -> Optional[str]:
+        """Clean text by removing invisible characters."""
+        if not self.is_valid_text(text):
+            return None
         cleaned = self.remove_invisible_chars(text)
         return cleaned if cleaned else None
 
-    @validate_text
-    def clean_isbn(self, text: str) -> Optional[str]:
+    def clean_isbn(self, text: Optional[str]) -> Optional[str]:
+        """Clean ISBN by removing invisible characters and non-digits."""
+        if not self.is_valid_text(text):
+            return None
         text = self.remove_invisible_chars(text)
         text = text.replace('.0', '')
         cleaned = re.sub(r'\D', '', text)
         return cleaned if cleaned else None
 
-    @validate_text
-    def clean_numeric(self, text: str) -> Optional[int]:
+    def clean_numeric(self, text: Optional[str]) -> Optional[int]:
+        """Extract numeric value from text."""
+        if not self.is_valid_text(text):
+            return None
         match = re.search(self.PATTERNS['number'], text)
         if match:
             try:
@@ -89,8 +90,10 @@ class DataCleaner:
                 return None
         return None
 
-    @validate_text
-    def clean_rating(self, text: str) -> Optional[float]:
+    def clean_rating(self, text: Optional[str]) -> Optional[float]:
+        """Extract rating from text (e.g., '4.5 out of')."""
+        if not self.is_valid_text(text):
+            return None
         match = re.search(self.PATTERNS['rating'], text)
         if match:
             try:
@@ -99,8 +102,10 @@ class DataCleaner:
                 return None
         return None
 
-    @validate_text
-    def clean_base_rating(self, text: str) -> Optional[float]:
+    def clean_base_rating(self, text: Optional[str]) -> Optional[float]:
+        """Extract rating from text (e.g., '4.5 out of 5')."""
+        if not self.is_valid_text(text):
+            return None
         match = re.search(self.PATTERNS['rating_base'], text)
         if match:
             try:
@@ -109,16 +114,20 @@ class DataCleaner:
                 return None
         return None
 
-    @validate_text
-    def clean_publication_date(self, text: str) -> Optional[str]:
+    def clean_publication_date(self, text: Optional[str]) -> Optional[str]:
+        """Parse publication date and convert to ISO format."""
+        if not self.is_valid_text(text):
+            return None
         try:
             dt = datetime.strptime(text, '%B %d, %Y')
             return dt.strftime('%Y-%m-%d')
         except ValueError:
             return None
 
-    @validate_text
-    def clean_item_weight(self, text: str) -> Optional[float]:
+    def clean_item_weight(self, text: Optional[str]) -> Optional[float]:
+        """Convert item weight to grams."""
+        if not self.is_valid_text(text):
+            return None
         total_grams = 0.0
         try:
             p_match = re.search(self.PATTERNS['pounds'], text)
@@ -131,8 +140,10 @@ class DataCleaner:
         except Exception:
             return None
 
-    @validate_text
-    def clean_price(self, text: str) -> Optional[float]:
+    def clean_price(self, text: Optional[str]) -> Optional[float]:
+        """Extract price from text."""
+        if not self.is_valid_text(text):
+            return None
         match = re.search(self.PATTERNS['price'], text)
         if match:
             try:
@@ -141,85 +152,107 @@ class DataCleaner:
                 return None
         return None
 
-    @validate_text
-    def clean_reading_age(self, text: str) -> Optional[str]:
+    def clean_reading_age(self, text: Optional[str]) -> Optional[str]:
+        """Extract reading age range from text."""
+        if not self.is_valid_text(text):
+            return None
         match = re.search(self.PATTERNS['age_range'], text)
-        if match:
-            return f"{match.group(1)} - {match.group(2)}"
-        return None
+        return f"{match.group(1)} - {match.group(2)}" if match else None
 
     @staticmethod
     def remove_invisible_chars(text: str) -> str:
+        """Remove invisible and control characters from text."""
         return ''.join(
-            c for c in text if c not in DataCleaner.INVISIBLE_CHARS and unicodedata.category(c)[0] != 'C'
+            c for c in text
+            if c not in DataCleaner.INVISIBLE_CHARS and unicodedata.category(c)[0] != 'C'
         ).strip()
-
-    @staticmethod
-    def fix_numeric_series(series: pd.Series) -> pd.Series:
-        def fix_value(x):
-            if pd.isna(x):
-                return None
-            if isinstance(x, str):
-                return x
-            try:
-                return f"{int(x)}"
-            except Exception:
-                return str(x)
-
-        return series.apply(fix_value).astype('string')
 
     @classmethod
     def parse_dimensions(cls, dimension_str: Optional[str]) -> Dict[str, Optional[float]]:
+        """Parse dimension string and convert to inches."""
         result = {'length': None, 'width': None, 'height': None}
         if not dimension_str or not isinstance(dimension_str, str):
             return result
+
         dimension_str = cls.remove_invisible_chars(dimension_str)
         pattern = re.compile(cls.PATTERNS['dimensions'], re.IGNORECASE)
         match = pattern.search(dimension_str)
+
         if not match:
             return result
+
         try:
             dim1, dim2, dim3, unit = match.groups()
             dims = [float(dim1), float(dim2), float(dim3)]
             unit = unit.lower() if unit else 'inches'
+
             if unit.startswith('cm'):
                 factor = cls.CONVERSION_FACTORS['cm_to_inches']
                 dims = [d * factor for d in dims]
+
             result['length'], result['width'], result['height'] = [round(d, 2) for d in dims]
         except Exception:
             pass
+
         return result
 
-    def clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        # Fix numeric ID columns first
-        for col in self.ID_COLUMNS:
-            if col in df.columns:
-                df[col] = self.fix_numeric_series(df[col])
-        # Apply cleaning functions
-        for col, func in self.clean_map.items():
-            if col in df.columns:
-                df[col] = df[col].apply(func)
-        # Parse dimensions
+    def clean_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Clean all columns in the dataframe using appropriate cleaning functions."""
+        # Apply cleaning functions to each column
+        for col in df.columns:
+            if col in self.clean_map:
+                func = self.clean_map[col]
+                df = df.with_columns(
+                    pl.col(col).map_elements(func, return_dtype=pl.String).alias(col)
+                )
+
+        # Parse dimensions if present
         if 'dimensions' in df.columns:
-            dims = df['dimensions'].apply(self.parse_dimensions)
-            df['length'] = dims.apply(lambda d: d['length'])
-            df['width'] = dims.apply(lambda d: d['width'])
-            df['height'] = dims.apply(lambda d: d['height'])
-            df.drop(columns=['dimensions'], inplace=True)
+            # Extract dimension components
+            dim_data = df.select(
+                pl.col('dimensions').map_elements(
+                    self.parse_dimensions,
+                    return_dtype=pl.Object
+                )
+            ).to_series()
+
+            try:
+                df = df.with_columns([
+                    pl.Series('length', [d['length'] for d in dim_data]),
+                    pl.Series('width', [d['width'] for d in dim_data]),
+                    pl.Series('height', [d['height'] for d in dim_data]),
+                ]).drop('dimensions')
+            except Exception as e:
+                print(e)
+
         return df
 
-    def load_and_clean_csv(self, input_path: str, output_path: Optional[str] = None, deduplicate_on: Optional[list[str]] = None) -> pd.DataFrame:
-        df = pd.read_csv(input_path)
+    def clean_and_save(
+        self,
+        df: pl.DataFrame,
+        output_path: Optional[str | Path] = None,
+        deduplicate_on: Optional[list[str]] = None
+    ) -> pl.DataFrame:
+        """Clean dataframe, optionally deduplicate and save."""
         df = self.clean_dataframe(df)
+
         if deduplicate_on:
-            df = df.drop_duplicates(subset=deduplicate_on)
+            df = df.unique(subset=deduplicate_on, keep='first')
+
+        if output_path:
+            df.write_csv(output_path)
+
         return df
+
 
 if __name__ == "__main__":
+    # Load the CSV file
+    df = pl.read_csv('data/amazon.csv')
+
+    # Clean the dataframe
     cleaner = DataCleaner()
-    cleaned_df = cleaner.load_and_clean_csv(
-        input_path='data/amazon.csv',
+    cleaned_df = cleaner.clean_and_save(
+        df=df,
         output_path='data/amazon_cleaned.csv',
         deduplicate_on=['isbn_13']
     )
