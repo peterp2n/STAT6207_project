@@ -69,6 +69,79 @@ class NavigationMixin:
         print(f"[{query}] ✗ Search box not found")
         return False
 
+    def extract_formats_modal(self, query: str) -> Optional[str]:
+        """Click 'See all formats and editions' button and extract modal HTML"""
+        wait = WebDriverWait(self.driver, 15)
+
+        try:
+            print(f"[{query}] Looking for formats button...")
+
+            # Selectors for the "See all formats and editions" button
+            button_selectors = [
+                (By.ID, "morpheus-ingress-link"),
+                (By.CSS_SELECTOR, "a#morpheus-ingress-link"),
+                (By.XPATH, "//a[contains(text(), 'See all formats and editions')]"),
+            ]
+
+            formats_button = None
+            for selector_type, selector_value in button_selectors:
+                try:
+                    formats_button = wait.until(
+                        EC.element_to_be_clickable((selector_type, selector_value))
+                    )
+                    print(f"[{query}] Found formats button with selector: {selector_value}")
+                    break
+                except:
+                    continue
+
+            if not formats_button:
+                print(f"[{query}] ⚠️ Formats button not found, skipping modal extraction")
+                return None
+
+            # Scroll button into view and click
+            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", formats_button)
+            time.sleep(random.uniform(0.5, 1.0))
+
+            try:
+                formats_button.click()
+            except:
+                self.driver.execute_script("arguments[0].click();", formats_button)
+
+            print(f"[{query}] Clicked formats button, waiting for modal...")
+            time.sleep(random.uniform(2, 3))
+
+            # Wait for modal container to be visible
+            modal_selectors = [
+                (By.ID, "bfae-desktop-main-content"),
+                (By.CSS_SELECTOR, "div#bfae-desktop-main-content"),
+                (By.CSS_SELECTOR, "div.sidesheetWidget"),
+            ]
+
+            modal_element = None
+            for selector_type, selector_value in modal_selectors:
+                try:
+                    modal_element = wait.until(
+                        EC.visibility_of_element_located((selector_type, selector_value))
+                    )
+                    print(f"[{query}] Modal loaded with selector: {selector_value}")
+                    break
+                except:
+                    continue
+
+            if not modal_element:
+                print(f"[{query}] ⚠️ Modal not visible, may not have loaded")
+                return None
+
+            # Extract modal HTML
+            modal_html = modal_element.get_attribute("outerHTML")
+            print(f"[{query}] ✓ Extracted modal HTML: {len(modal_html)} bytes")
+
+            return modal_html
+
+        except Exception as e:
+            print(f"[{query}] ⚠️ Error extracting formats modal: {e}")
+            return None
+
     def click_first_result(self, query: str) -> Optional[Dict]:
         """Click first search result and get product page with challenge handling"""
         wait = WebDriverWait(self.driver, 30)
@@ -86,6 +159,7 @@ class NavigationMixin:
                         "query": query,
                         "url": None,
                         "html": None,
+                        "modal_html": None,
                         "title": None,
                         "status": "challenge_failed"
                     }
@@ -99,6 +173,7 @@ class NavigationMixin:
                     "query": query,
                     "url": None,
                     "html": None,
+                    "modal_html": None,
                     "title": None,
                     "status": "captcha_blocked"
                 }
@@ -146,6 +221,7 @@ class NavigationMixin:
                     "query": query,
                     "url": None,
                     "html": None,
+                    "modal_html": None,
                     "title": None,
                     "status": "no_result_found"
                 }
@@ -173,6 +249,7 @@ class NavigationMixin:
                         "query": query,
                         "url": current_url,
                         "html": None,
+                        "modal_html": None,
                         "title": None,
                         "status": "challenge_failed_product_page"
                     }
@@ -187,6 +264,7 @@ class NavigationMixin:
                     "query": query,
                     "url": current_url,
                     "html": None,
+                    "modal_html": None,
                     "title": None,
                     "status": "captcha_blocked_product_page"
                 }
@@ -200,10 +278,17 @@ class NavigationMixin:
             except:
                 print(f"[{query}] Warning: Product title not found, but continuing...")
 
+            # Get main page HTML
+            main_html = self.driver.page_source
+
+            # Extract formats modal HTML
+            modal_html = self.extract_formats_modal(query)
+
             return {
                 "query": query,
                 "url": current_url,
-                "html": self.driver.page_source,
+                "html": main_html,
+                "modal_html": modal_html,
                 "title": self.driver.title,
                 "status": "success"
             }
@@ -223,6 +308,7 @@ class NavigationMixin:
                 "query": query,
                 "url": self.driver.current_url if self.driver else None,
                 "html": None,
+                "modal_html": None,
                 "title": None,
                 "status": "error"
             }
