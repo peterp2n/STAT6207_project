@@ -5,7 +5,7 @@ import time
 import traceback
 
 # Absolute imports work when main.py is at project root
-from src.stat6207_project.scraper.scraper_v1 import TorScraper
+from src.stat6207_project.scraper.scraper_new import TorScraper
 
 
 def main():
@@ -28,7 +28,7 @@ def main():
            .to_series()
            .to_list())
 
-    scraper.load_queries(queries=que[:5])
+    scraper.load_queries(queries=que)
 
     try:
         # Create browser
