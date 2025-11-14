@@ -266,7 +266,7 @@ class Extractor:
             rating = product.get('rating')
             num_reviews = product.get('number_of_reviews')
             if rating and num_reviews:
-                product['customer_reviews'] = f"{rating} out of 5 stars ({num_reviews} reviews)"
+                product['customer_reviews'] = rating
         except Exception as e:
             error_messages.append(f"Error setting customer reviews: {str(e)}")
 
