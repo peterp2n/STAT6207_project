@@ -137,10 +137,11 @@ class Extractor:
             return product
         dims = re.findall(r'([\d.]+)', dim_str)
         if len(dims) >= 3:
-            float_dims = sorted([float(d) for d in dims], reverse=True)
-            product['length'] = str(float_dims[0])
-            product['width'] = str(float_dims[1])
-            product['height'] = str(float_dims[2])
+            float_dims = [float(d) for d in dims]
+            sorted_dims = sorted(float_dims, reverse=True)
+            product['length'] = str(sorted_dims[0])
+            product['width'] = str(sorted_dims[1])
+            product['height'] = str(sorted_dims[2])
         return product
 
     @staticmethod
@@ -164,6 +165,25 @@ class Extractor:
     def extract_product_url(soup):
         canonical = soup.find('link', rel='canonical')
         return canonical.get('href') if canonical else None
+
+    @staticmethod
+    def parse_item_weight(product):
+        weight_str = product.get('item_weight')
+        if not weight_str:
+            return product
+        match = re.match(r'([\d.]+)\s*(ounces?|oz|grams?|g|kilograms?|kg|pounds?|lb)', weight_str, re.I)
+        if match:
+            value = float(match.group(1))
+            unit = match.group(2).lower()
+            if unit in ('gram', 'grams', 'g'):
+                value *= 0.035274
+            elif unit in ('kilogram', 'kilograms', 'kg'):
+                value *= 35.274
+            elif unit in ('pound', 'pounds', 'lb'):
+                value *= 16
+            # else: already in ounces
+            product['item_weight'] = str(value)
+        return product
 
     def parse(self, html_content):
         soup = BeautifulSoup(html_content, 'html.parser')
@@ -211,6 +231,11 @@ class Extractor:
             product = self.parse_publisher(product)
         except Exception as e:
             error_messages.append(f"Error parsing publisher: {str(e)}")
+
+        try:
+            product = self.parse_item_weight(product)
+        except Exception as e:
+            error_messages.append(f"Error parsing item weight: {str(e)}")
 
         try:
             isbn_10 = product.get('isbn_10')
