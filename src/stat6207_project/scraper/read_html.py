@@ -2,6 +2,7 @@ import re
 from bs4 import BeautifulSoup
 import polars as pl
 from pathlib import Path
+from datetime import datetime
 
 class Extractor:
     EMPTY_PRODUCT = {
@@ -190,6 +191,12 @@ class Extractor:
             for label, value in details.items():
                 mapped_key = self.FIELD_MAPPINGS.get(label)
                 if mapped_key:
+                    if mapped_key == 'publication_date':
+                        try:
+                            dt = datetime.strptime(value, "%B %d, %Y")
+                            value = dt.strftime("%Y-%m-%d")
+                        except ValueError:
+                            print(f"Failed to convert: {value}")
                     product[mapped_key] = value
         except Exception as e:
             error_messages.append(f"Error extracting product details: {str(e)}")
