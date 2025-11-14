@@ -14,7 +14,7 @@ class Extractor:
         'length': None, 'width': None, 'height': None,
         'item_weight': None, 'print_length': None,
         'reading_age': None, 'edition': None, 'author': None, 'asin': None,
-        'part_of_series': None, 'best_sellers_rank': None, 'customer_reviews': None,
+        'series_name': None, 'best_sellers_rank': None, 'customer_reviews': None,
         'description': None, 'product_url': None,
         'scrape_status': None, 'error_message': None
     }
@@ -26,8 +26,10 @@ class Extractor:
         'Item Weight': 'item_weight', 'Item weight': 'item_weight',
         'Print length': 'print_length', 'Paperback': 'print_length',
         'Reading age': 'reading_age', 'Edition': 'edition', 'ASIN': 'asin',
-        'Series': 'part_of_series', 'Part of': 'part_of_series',
-        'Part of series': 'part_of_series', 'Best Sellers Rank': 'best_sellers_rank'
+        'Series': 'series_name',
+        'Part of': 'series_name',
+        'Part of series': 'series_name',
+        'Best Sellers Rank': 'best_sellers_rank'
     }
 
     EUR_TO_USD_RATE = 1.08
@@ -214,13 +216,11 @@ class Extractor:
         num_match = re.search(r'[\d,]+(?:\.\d+)?', raw_price)
         if not num_match:
             return None
-
         clean_num = num_match.group(0).replace(',', '')
         try:
             value = float(clean_num)
         except ValueError:
             return None
-
         if is_eur:
             value *= Extractor.EUR_TO_USD_RATE
         return f"{value:.2f}"
