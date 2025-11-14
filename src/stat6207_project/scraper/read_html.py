@@ -4,7 +4,6 @@ import polars as pl
 from pathlib import Path
 from datetime import datetime
 
-
 class Extractor:
     EMPTY_PRODUCT = {
         'isbn': None, 'title': None, 'price': None,
@@ -29,6 +28,8 @@ class Extractor:
         'Edition': 'edition', 'ASIN': 'asin', 'Series': 'part_of_series',
         'Part of': 'part_of_series', 'Part of series': 'part_of_series', 'Best Sellers Rank': 'best_sellers_rank'
     }
+
+    EUR_TO_USD_RATE = 1.08
 
     def __init__(self):
         self.results = []
@@ -182,8 +183,7 @@ class Extractor:
                 value *= 35.274
             elif unit.startswith('lb') or unit.startswith('pound'):  # pound or pounds or lb
                 value *= 16
-            # else: already in ounces or oz
-            product['item_weight'] = str(round(value, 2))  # round to 2 decimals for cleanliness
+            product['item_weight'] = str(round(value, 2))
         return product
 
     @staticmethod
@@ -200,6 +200,31 @@ class Extractor:
         else:
             product['best_sellers_rank'] = ""
         return product
+
+    @staticmethod
+    def parse_price(raw_price):
+        if not raw_price:
+            return None
+
+        raw_price = raw_price.strip()
+
+        is_eur = '€' in raw_price or 'EUR' in raw_price.upper()
+        is_usd = '$' in raw_price
+
+        num_match = re.search(r'[\d,]+(?:\.\d+)?', raw_price)
+        if not num_match:
+            return None
+
+        clean_num = num_match.group(0).replace(',', '')
+        try:
+            value = float(clean_num)
+        except ValueError:
+            return None
+
+        if is_eur:
+            value *= Extractor.EUR_TO_USD_RATE
+
+        return f"{value:.2f}"
 
     def parse(self, html_content):
         soup = BeautifulSoup(html_content, 'html.parser')
@@ -234,32 +259,25 @@ class Extractor:
                             value = dt.strftime("%Y-%m-%d")
                         except ValueError:
                             print(f"Failed to convert publication date: {value}")
-
                     if mapped_key == 'print_length':
                         match = re.search(r'([\d,]+)', value)
                         if match:
                             value = match.group(1).replace(',', '')
-
                     if mapped_key == 'reading_age':
-                        # Extract all digits from the original value
                         nums = re.findall(r'\d+', value)
                         if nums:
-                            # Use only the first two numbers (lower and upper age)
                             lower = float(nums[0])
                             if len(nums) >= 2:
                                 upper = float(nums[1])
                                 mean_age = (lower + upper) / 2
                             else:
-                                mean_age = lower  # only one number ("X and up" case)
-
-                            # Format nicely: integer if whole, else one decimal
+                                mean_age = lower
                             if mean_age.is_integer():
                                 value = str(int(mean_age))
                             else:
                                 value = f"{mean_age:.1f}"
                         else:
                             value = ""
-
                     product[mapped_key] = value
         except Exception as e:
             error_messages.append(f"Error extracting product details: {str(e)}")
@@ -305,6 +323,11 @@ class Extractor:
                 f"https://www.amazon.com/dp/{asin}" if asin else None)
         except Exception as e:
             error_messages.append(f"Error setting product URL: {str(e)}")
+
+        # Clean/convert price after extraction
+        raw_price = product.get('price')
+        if raw_price:
+            product['price'] = self.parse_price(raw_price)
 
         try:
             rating = product.get('rating')
