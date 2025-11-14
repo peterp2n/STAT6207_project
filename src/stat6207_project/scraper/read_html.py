@@ -4,6 +4,7 @@ import polars as pl
 from pathlib import Path
 from datetime import datetime
 
+
 class Extractor:
     EMPTY_PRODUCT = {
         'isbn': None, 'title': None, 'price': None,
@@ -13,8 +14,8 @@ class Extractor:
         'length': None, 'width': None, 'height': None,
         'item_weight': None, 'print_length': None,
         'reading_age': None, 'edition': None, 'author': None, 'asin': None,
-        'part_of_series': None, 'best_sellers_rank': None, 'customer_reviews': None, 'description': None,
-        'product_url': None,
+        'part_of_series': None, 'best_sellers_rank': None, 'customer_reviews': None,
+        'description': None, 'product_url': None,
         'scrape_status': None, 'error_message': None
     }
 
@@ -22,11 +23,11 @@ class Extractor:
         'ISBN-10': 'isbn_10', 'ISBN-13': 'isbn_13', 'Publisher': 'publisher',
         'Publication date': 'publication_date', 'Language': 'language',
         'Dimensions': 'dimensions',
-        'Item Weight': 'item_weight',
-        'Item weight': 'item_weight', 'Print length': 'print_length',
-        'Paperback': 'print_length', 'Reading age': 'reading_age',
-        'Edition': 'edition', 'ASIN': 'asin', 'Series': 'part_of_series',
-        'Part of': 'part_of_series', 'Part of series': 'part_of_series', 'Best Sellers Rank': 'best_sellers_rank'
+        'Item Weight': 'item_weight', 'Item weight': 'item_weight',
+        'Print length': 'print_length', 'Paperback': 'print_length',
+        'Reading age': 'reading_age', 'Edition': 'edition', 'ASIN': 'asin',
+        'Series': 'part_of_series', 'Part of': 'part_of_series',
+        'Part of series': 'part_of_series', 'Best Sellers Rank': 'best_sellers_rank'
     }
 
     EUR_TO_USD_RATE = 1.08
@@ -46,15 +47,33 @@ class Extractor:
 
     @staticmethod
     def extract_author(soup):
+        # Try byline first
         byline = soup.find('div', id='bylineInfo')
         if byline:
-            authors = [a.text.strip() for a in byline.find_all('span', class_='author') if a.text.strip()]
-            if authors:
-                return ', '.join(authors)
-        contribs = [c.text.strip() for c in soup.find_all('a', class_='contributor') if c.text.strip()]
-        if contribs:
-            return ', '.join(contribs)
-        return None
+            raw = ', '.join([a.text.strip() for a in byline.find_all('span', class_='author') if a.text.strip()])
+        else:
+            raw = ', '.join([c.text.strip() for c in soup.find_all('a', class_='contributor') if c.text.strip()])
+
+        if not raw:
+            return None
+
+        # Remove roles in parentheses
+        cleaned = re.sub(r'\s*\([^)]*\)', '', raw)
+
+        # Clean double commas and whitespace
+        cleaned = re.sub(r',\s*,', ',', cleaned)
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+        # Remove trailing comma
+        if cleaned.endswith(','):
+            cleaned = cleaned[:-1].strip()
+
+        # Filter junk
+        junk = {'unknown author', 'n/a', 'na', 'various', ''}
+        if cleaned.lower() in junk:
+            return None
+
+        return cleaned or None
 
     @staticmethod
     def extract_price(soup):
@@ -73,8 +92,7 @@ class Extractor:
     def extract_number_of_reviews(soup):
         rev_span = soup.find('span', id='acrCustomerReviewText')
         if rev_span:
-            rev_text = rev_span.text.strip().split()[0].replace(',', '')
-            return rev_text
+            return rev_span.text.strip().split()[0].replace(',', '')
         return None
 
     @staticmethod
@@ -90,12 +108,8 @@ class Extractor:
         ul = feature_div.find('ul')
         if not ul:
             return None
-        features = [
-            span.text.strip()
-            for li in ul.find_all('li')
-            if (span := li.find('span', class_='a-list-item')) and span.text.strip()
-        ]
-        return features or None
+        return [span.text.strip() for li in ul.find_all('li')
+                if (span := li.find('span', class_='a-list-item')) and span.text.strip()] or None
 
     @staticmethod
     def extract_description(soup):
@@ -115,8 +129,7 @@ class Extractor:
                 if span:
                     bold = span.find('span', class_='a-text-bold')
                     if bold:
-                        bold_text = re.sub(r'[\s\u200e\u200f]+', ' ', bold.text).strip()
-                        key = bold_text.rstrip(' :')
+                        key = re.sub(r'[\s\u200e\u200f]+', ' ', bold.text).strip().rstrip(' :')
                         value = re.sub(r'[\s\u200e\u200f]+', ' ', span.text.replace(bold.text, '')).strip()
                         if value:
                             details[key] = value
@@ -127,10 +140,7 @@ class Extractor:
                     th = row.find('th')
                     td = row.find('td')
                     if th and td:
-                        key = th.text.strip()
-                        value = td.text.strip()
-                        if key and value:
-                            details[key] = value
+                        details[th.text.strip()] = td.text.strip()
         return details
 
     @staticmethod
@@ -177,11 +187,11 @@ class Extractor:
         if match:
             value = float(match.group(1))
             unit = match.group(2).lower()
-            if unit.startswith('g'):  # gram or grams
+            if unit.startswith('g'):
                 value *= 0.035274
-            elif unit.startswith('kg'):  # kilogram or kilograms
+            elif unit.startswith('kg'):
                 value *= 35.274
-            elif unit.startswith('lb') or unit.startswith('pound'):  # pound or pounds or lb
+            elif unit.startswith('lb') or unit.startswith('pound'):
                 value *= 16
             product['item_weight'] = str(round(value, 2))
         return product
@@ -192,11 +202,9 @@ class Extractor:
         if not rank_str:
             product['best_sellers_rank'] = ""
             return product
-
         match = re.search(r'#([\d,]+) in Books', rank_str)
         if match:
-            clean_rank = match.group(1).replace(',', '')
-            product['best_sellers_rank'] = clean_rank
+            product['best_sellers_rank'] = match.group(1).replace(',', '')
         else:
             product['best_sellers_rank'] = ""
         return product
@@ -205,12 +213,8 @@ class Extractor:
     def parse_price(raw_price):
         if not raw_price:
             return None
-
         raw_price = raw_price.strip()
-
         is_eur = '€' in raw_price or 'EUR' in raw_price.upper()
-        is_usd = '$' in raw_price
-
         num_match = re.search(r'[\d,]+(?:\.\d+)?', raw_price)
         if not num_match:
             return None
@@ -223,7 +227,6 @@ class Extractor:
 
         if is_eur:
             value *= Extractor.EUR_TO_USD_RATE
-
         return f"{value:.2f}"
 
     def parse(self, html_content):
@@ -267,15 +270,8 @@ class Extractor:
                         nums = re.findall(r'\d+', value)
                         if nums:
                             lower = float(nums[0])
-                            if len(nums) >= 2:
-                                upper = float(nums[1])
-                                mean_age = (lower + upper) / 2
-                            else:
-                                mean_age = lower
-                            if mean_age.is_integer():
-                                value = str(int(mean_age))
-                            else:
-                                value = f"{mean_age:.1f}"
+                            mean_age = (lower + float(nums[1])) / 2 if len(nums) >= 2 else lower
+                            value = str(int(mean_age)) if mean_age.is_integer() else f"{mean_age:.1f}"
                         else:
                             value = ""
                     product[mapped_key] = value
@@ -302,6 +298,9 @@ class Extractor:
         except Exception as e:
             error_messages.append(f"Error parsing best sellers rank: {str(e)}")
 
+        raw_price = product.get('price')
+        product['price'] = self.parse_price(raw_price)
+
         try:
             isbn_10 = product.get('isbn_10')
             if isbn_10:
@@ -324,11 +323,6 @@ class Extractor:
         except Exception as e:
             error_messages.append(f"Error setting product URL: {str(e)}")
 
-        # Clean/convert price after extraction
-        raw_price = product.get('price')
-        if raw_price:
-            product['price'] = self.parse_price(raw_price)
-
         try:
             rating = product.get('rating')
             num_reviews = product.get('number_of_reviews')
@@ -337,40 +331,35 @@ class Extractor:
         except Exception as e:
             error_messages.append(f"Error setting customer reviews: {str(e)}")
 
+        product['scrape_status'] = 'success' if not error_messages else 'partial_success'
         if error_messages:
-            product['scrape_status'] = 'partial_success' if any(v is not None for v in product.values()) else 'failure'
             product['error_message'] = '; '.join(error_messages)
-        else:
-            product['scrape_status'] = 'success'
 
         self.results.append(product)
 
     def to_dataframe(self):
-        if not self.results:
-            self.df = pl.DataFrame(schema=list(self.EMPTY_PRODUCT.keys()))
-        else:
-            self.df = pl.DataFrame(self.results)
+        self.df = pl.DataFrame(self.results or [self.EMPTY_PRODUCT])
         return self.df
 
     @staticmethod
     def read_html(file_path):
         try:
-            with open(file_path, "r", encoding="utf-8") as reader:
-                return reader.read()
+            with open(file_path, "r", encoding="utf-8") as f:
+                return f.read()
         except Exception as e:
-            print(f"Error reading file {file_path}: {e}")
+            print(f"Error reading {file_path}: {e}")
             return None
 
 
 if __name__ == "__main__":
     ext = Extractor()
     html_folder = Path("data")
-    html_paths = list(html_folder.rglob("*.html"))[:100]  # limit to 100 files for testing
+    html_paths = list(html_folder.rglob("*.html"))[:200]
 
     for html_path in html_paths:
-        html_content = Extractor.read_html(html_path)
-        if html_content:
-            ext.parse(html_content)
+        content = Extractor.read_html(html_path)
+        if content:
+            ext.parse(content)
 
     df = ext.to_dataframe()
     print(df)
