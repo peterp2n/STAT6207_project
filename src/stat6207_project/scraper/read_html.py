@@ -184,6 +184,22 @@ class Extractor:
             product['item_weight'] = str(value)
         return product
 
+    @staticmethod
+    def parse_best_sellers_rank(product):
+        rank_str = product.get('best_sellers_rank')
+        if not rank_str:
+            product['best_sellers_rank'] = ""
+            return product
+
+        # Look for the overall "in Books" rank
+        match = re.search(r'#([\d,]+) in Books', rank_str)
+        if match:
+            clean_rank = match.group(1).replace(',', '')
+            product['best_sellers_rank'] = clean_rank
+        else:
+            product['best_sellers_rank'] = ""
+        return product
+
     def parse(self, html_content):
         soup = BeautifulSoup(html_content, 'html.parser')
         product = self.EMPTY_PRODUCT.copy()
@@ -239,6 +255,11 @@ class Extractor:
             product = self.parse_item_weight(product)
         except Exception as e:
             error_messages.append(f"Error parsing item weight: {str(e)}")
+
+        try:
+            product = self.parse_best_sellers_rank(product)
+        except Exception as e:
+            error_messages.append(f"Error parsing best sellers rank: {str(e)}")
 
         try:
             isbn_10 = product.get('isbn_10')
@@ -297,9 +318,12 @@ class Extractor:
 if __name__ == "__main__":
     ext = Extractor()
     html_folder = Path("data")
-    html_path1 = html_folder / "product_9780064450836.html"
-    html_path2 = html_folder / "scrapes" / "product_978981495800" / "product_978981495800.html"
-    paths = [html_path1, html_path2]
+    # html_path1 = html_folder / "product_9780064450836.html"
+    # html_path2 = html_folder / "scrapes" / "product_978981495800" / "product_978981495800.html"
+
+    paths = list(html_folder.rglob("*.html"))[:100]
+
+    # paths = [html_path1, html_path2]
     for html_path in paths:
         html_content = Extractor.read_html(html_path)  # Replace with your actual file path
         if html_content:
