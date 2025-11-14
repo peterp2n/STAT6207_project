@@ -13,7 +13,7 @@ class Extractor:
         'publisher': None, 'publication_date': None, 'language': None,
         'length': None, 'width': None, 'height': None,
         'item_weight': None, 'print_length': None,
-        'reading_age': None, 'edition': None, 'author': None, 'asin': None,
+        'reading_age': None, 'edition': None, 'author': None, 'asin': None, 'book_format': None,
         'series_name': None, 'best_sellers_rank': None, 'customer_reviews': None,
         'description': None, 'product_url': None,
         'scrape_status': None, 'error_message': None
@@ -69,6 +69,52 @@ class Extractor:
             return None
 
         return cleaned or None
+
+    @staticmethod
+    def extract_book_format(soup):
+        """
+        Extracts the current book format (Paperback, Hardcover, Kindle, etc.)
+        Priority:
+        1. Selected format in the price swatches (most reliable)
+        2. #productSubtitle if it contains a real format
+        3. Return None if only edition info or junk
+        """
+        # === 1. Check the selected swatch in the formats grid (MOST ACCURATE) ===
+        selected_swatch = soup.find('div', class_=re.compile(r'swatchElement.*selected'))
+        if selected_swatch:
+            title_span = selected_swatch.find('span', class_='slot-title')
+            if title_span:
+                text = title_span.get_text(strip=True)
+                # Extract the format name before "Format:"
+                match = re.search(r'^(.+?)(?:\s+Format:|$)', text)
+                if match:
+                    fmt = match.group(1).strip()
+                    if fmt and fmt.lower() not in {'kindle', 'paperback', 'hardcover', 'audiobook', 'library binding',
+                                                   'board book', 'mass market paperback',
+                                                   'spiral-bound'} == False:  # if it's a real format
+                        return fmt
+                    return fmt  # safe fallback
+
+        # === 2. Fallback to #productSubtitle ===
+        subtitle = soup.find('span', id='productSubtitle')
+        if not subtitle:
+            return None
+
+        text = subtitle.get_text(strip=True)
+
+        # If it contains real formats → extract
+        formats = ['Hardcover', 'Paperback', 'Kindle Edition', 'Library Binding',
+                   'Board book', 'Mass Market Paperback', 'Spiral-bound', 'Audio CD']
+        for fmt in formats:
+            if fmt.lower() in text.lower():
+                return fmt
+
+        # If only edition info like "3rd Edition" → ignore
+        if re.search(r'\d+(st|nd|rd|th)\s+Edition', text, re.I):
+            return None
+
+        # Anything else is probably not a format
+        return None
 
     @staticmethod
     def extract_price(soup):
@@ -239,6 +285,7 @@ class Extractor:
             'availability': self.extract_availability,
             'features': self.extract_features,
             'description': self.extract_description,
+            'book_format': self.extract_book_format,
         }
 
         for key, func in extraction_funcs.items():
