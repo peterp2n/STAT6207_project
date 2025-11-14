@@ -137,9 +137,10 @@ class Extractor:
             return product
         dims = re.findall(r'([\d.]+)', dim_str)
         if len(dims) >= 3:
-            product['width'] = dims[0]
-            product['length'] = dims[1]
-            product['height'] = dims[2]
+            float_dims = sorted([float(d) for d in dims], reverse=True)
+            product['length'] = str(float_dims[0])
+            product['width'] = str(float_dims[1])
+            product['height'] = str(float_dims[2])
         return product
 
     @staticmethod
@@ -268,11 +269,13 @@ class Extractor:
 if __name__ == "__main__":
     ext = Extractor()
     html_folder = Path("data")
-    html_path = html_folder / "product_9780064450836.html"
-    html_content = Extractor.read_html(html_path)  # Replace with your actual file path
-    if html_content:
-        ext.parse(html_content)
-        df = ext.to_dataframe()
-        print(df)
-
-    pass
+    html_path1 = html_folder / "product_9780064450836.html"
+    html_path2 = html_folder / "scrapes" / "product_978981495800" / "product_978981495800.html"
+    paths = [html_path1, html_path2]
+    for html_path in paths:
+        html_content = Extractor.read_html(html_path)  # Replace with your actual file path
+        if html_content:
+            ext.parse(html_content)
+            df = ext.to_dataframe()
+            pass
+    print(df)
