@@ -137,11 +137,10 @@ class Extractor:
             return product
         dims = re.findall(r'([\d.]+)', dim_str)
         if len(dims) >= 3:
-            float_dims = [float(d) for d in dims]
-            sorted_dims = sorted(float_dims, reverse=True)
-            product['length'] = str(sorted_dims[0])
-            product['width'] = str(sorted_dims[1])
-            product['height'] = str(sorted_dims[2])
+            float_dims = sorted([float(d) for d in dims], reverse=True)
+            product['length'] = str(float_dims[0])
+            product['width'] = str(float_dims[1])
+            product['height'] = str(float_dims[2])
         return product
 
     @staticmethod
@@ -175,13 +174,13 @@ class Extractor:
         if match:
             value = float(match.group(1))
             unit = match.group(2).lower()
-            if unit in ('gram', 'grams', 'g'):
+            if unit.startswith('g'):  # gram or grams
                 value *= 0.035274
-            elif unit in ('kilogram', 'kilograms', 'kg'):
+            elif unit.startswith('kg'):  # kilogram or kilograms
                 value *= 35.274
-            elif unit in ('pound', 'pounds', 'lb'):
+            elif unit.startswith('lb') or unit.startswith('pound'):  # pound or pounds or lb
                 value *= 16
-            # else: already in ounces
+            # else: already in ounces or oz
             product['item_weight'] = str(value)
         return product
 
@@ -218,6 +217,10 @@ class Extractor:
                             value = dt.strftime("%Y-%m-%d")
                         except ValueError:
                             print(f"Failed to convert: {value}")
+                    if mapped_key == 'print_length':
+                        match = re.search(r'([\d,]+)', value)
+                        if match:
+                            value = match.group(1).replace(',', '')
                     product[mapped_key] = value
         except Exception as e:
             error_messages.append(f"Error extracting product details: {str(e)}")
