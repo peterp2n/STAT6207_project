@@ -47,7 +47,6 @@ class Extractor:
 
     @staticmethod
     def extract_author(soup):
-        # Try byline first
         byline = soup.find('div', id='bylineInfo')
         if byline:
             raw = ', '.join([a.text.strip() for a in byline.find_all('span', class_='author') if a.text.strip()])
@@ -57,18 +56,12 @@ class Extractor:
         if not raw:
             return None
 
-        # Remove roles in parentheses
         cleaned = re.sub(r'\s*\([^)]*\)', '', raw)
-
-        # Clean double commas and whitespace
         cleaned = re.sub(r',\s*,', ',', cleaned)
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-
-        # Remove trailing comma
         if cleaned.endswith(','):
             cleaned = cleaned[:-1].strip()
 
-        # Filter junk
         junk = {'unknown author', 'n/a', 'na', 'various', ''}
         if cleaned.lower() in junk:
             return None
@@ -84,9 +77,12 @@ class Extractor:
     def extract_rating(soup):
         rating_span = soup.find('span', id='acrPopover')
         if rating_span and 'title' in rating_span.attrs:
-            return rating_span['title'].split()[0]
-        alt_span = soup.find('span', class_='a-icon-alt')
-        return alt_span.text.split()[0] if alt_span else None
+            rating = rating_span['title'].split()[0]
+        else:
+            alt_span = soup.find('span', class_='a-icon-alt')
+            rating = alt_span.text.split()[0] if alt_span else None
+
+        return None if rating == "Previous" else rating
 
     @staticmethod
     def extract_number_of_reviews(soup):
@@ -354,7 +350,7 @@ class Extractor:
 if __name__ == "__main__":
     ext = Extractor()
     html_folder = Path("data")
-    html_paths = list(html_folder.rglob("*.html"))[:200]
+    html_paths = list(html_folder.rglob("*.html"))[:100]
 
     for html_path in html_paths:
         content = Extractor.read_html(html_path)
