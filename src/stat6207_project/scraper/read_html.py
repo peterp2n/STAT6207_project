@@ -4,6 +4,7 @@ import polars as pl
 from pathlib import Path
 from datetime import datetime
 
+
 class Extractor:
     EMPTY_PRODUCT = {
         'isbn': None, 'title': None, 'price': None,
@@ -13,7 +14,8 @@ class Extractor:
         'length': None, 'width': None, 'height': None,
         'item_weight': None, 'print_length': None,
         'reading_age': None, 'edition': None, 'author': None, 'asin': None,
-        'part_of_series': None, 'best_sellers_rank': None, 'customer_reviews': None, 'description': None, 'product_url': None,
+        'part_of_series': None, 'best_sellers_rank': None, 'customer_reviews': None, 'description': None,
+        'product_url': None,
         'scrape_status': None, 'error_message': None
     }
 
@@ -181,7 +183,7 @@ class Extractor:
             elif unit.startswith('lb') or unit.startswith('pound'):  # pound or pounds or lb
                 value *= 16
             # else: already in ounces or oz
-            product['item_weight'] = str(value)
+            product['item_weight'] = str(round(value, 2))  # round to 2 decimals for cleanliness
         return product
 
     @staticmethod
@@ -191,7 +193,6 @@ class Extractor:
             product['best_sellers_rank'] = ""
             return product
 
-        # Look for the overall "in Books" rank
         match = re.search(r'#([\d,]+) in Books', rank_str)
         if match:
             clean_rank = match.group(1).replace(',', '')
@@ -232,11 +233,33 @@ class Extractor:
                             dt = datetime.strptime(value, "%B %d, %Y")
                             value = dt.strftime("%Y-%m-%d")
                         except ValueError:
-                            print(f"Failed to convert: {value}")
+                            print(f"Failed to convert publication date: {value}")
+
                     if mapped_key == 'print_length':
                         match = re.search(r'([\d,]+)', value)
                         if match:
                             value = match.group(1).replace(',', '')
+
+                    if mapped_key == 'reading_age':
+                        # Extract all digits from the original value
+                        nums = re.findall(r'\d+', value)
+                        if nums:
+                            # Use only the first two numbers (lower and upper age)
+                            lower = float(nums[0])
+                            if len(nums) >= 2:
+                                upper = float(nums[1])
+                                mean_age = (lower + upper) / 2
+                            else:
+                                mean_age = lower  # only one number ("X and up" case)
+
+                            # Format nicely: integer if whole, else one decimal
+                            if mean_age.is_integer():
+                                value = str(int(mean_age))
+                            else:
+                                value = f"{mean_age:.1f}"
+                        else:
+                            value = ""
+
                     product[mapped_key] = value
         except Exception as e:
             error_messages.append(f"Error extracting product details: {str(e)}")
@@ -292,7 +315,7 @@ class Extractor:
             error_messages.append(f"Error setting customer reviews: {str(e)}")
 
         if error_messages:
-            product['scrape_status'] = 'partial_success' if any(product.values()) else 'failure'
+            product['scrape_status'] = 'partial_success' if any(v is not None for v in product.values()) else 'failure'
             product['error_message'] = '; '.join(error_messages)
         else:
             product['scrape_status'] = 'success'
@@ -309,25 +332,22 @@ class Extractor:
     @staticmethod
     def read_html(file_path):
         try:
-            with open(file_path, "r") as reader:
+            with open(file_path, "r", encoding="utf-8") as reader:
                 return reader.read()
         except Exception as e:
             print(f"Error reading file {file_path}: {e}")
             return None
 
+
 if __name__ == "__main__":
     ext = Extractor()
     html_folder = Path("data")
-    # html_path1 = html_folder / "product_9780064450836.html"
-    # html_path2 = html_folder / "scrapes" / "product_978981495800" / "product_978981495800.html"
+    html_paths = list(html_folder.rglob("*.html"))[:100]  # limit to 100 files for testing
 
-    paths = list(html_folder.rglob("*.html"))[:100]
-
-    # paths = [html_path1, html_path2]
-    for html_path in paths:
-        html_content = Extractor.read_html(html_path)  # Replace with your actual file path
+    for html_path in html_paths:
+        html_content = Extractor.read_html(html_path)
         if html_content:
             ext.parse(html_content)
-            df = ext.to_dataframe()
-            pass
+
+    df = ext.to_dataframe()
     print(df)
