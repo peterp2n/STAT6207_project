@@ -28,9 +28,40 @@ class Extractor:
         'Part of': 'part_of_series', 'Part of series': 'part_of_series', 'Best Sellers Rank': 'best_sellers_rank'
     }
 
+    INVISIBLE_CHARS = {
+        '\u200b',  # Zero-width space
+        '\u200c',  # Zero-width non-joiner
+        '\u200d',  # Zero-width joiner
+        '\u200e',  # Left-to-right mark (LRM)
+        '\u200f',  # Right-to-left mark
+        '\u202a',  # Left-to-right embedding
+        '\u202b',  # Right-to-left embedding
+        '\u202c',  # Pop directional formatting
+        '\u202d',  # Left-to-right override
+        '\u202e',  # Right-to-left override
+        '\ufeff',  # Zero-width no-break space
+        '\u00a0',  # Non-breaking space
+    }
+
+    trans_table = str.maketrans('', '', ''.join(INVISIBLE_CHARS))
+
     def __init__(self):
         self.results = []
         self.df = None
+
+    @staticmethod
+    def clean_single(text):
+        if text is None:
+            return None
+        text = text.translate(extractor.trans_table)
+        return ' '.join(text.split())
+
+    @staticmethod
+    def clean_multi(text):
+        if text is None:
+            return None
+        text = text.translate(extractor.trans_table)
+        return text.strip()
 
     @staticmethod
     def clean_isbn(isbn_str):
@@ -39,16 +70,18 @@ class Extractor:
     @staticmethod
     def extract_title(soup):
         title_elem = soup.find('span', id='productTitle')
-        return title_elem.text.strip() if title_elem else None
+        if title_elem:
+            return extractor.clean_single(title_elem.text)
+        return None
 
     @staticmethod
     def extract_author(soup):
         byline = soup.find('div', id='bylineInfo')
         if byline:
-            authors = [a.text.strip() for a in byline.find_all('span', class_='author') if a.text.strip()]
+            authors = [extractor.clean_single(a.text) for a in byline.find_all('span', class_='author') if a.text.strip()]
             if authors:
                 return ', '.join(authors)
-        contribs = [c.text.strip() for c in soup.find_all('a', class_='contributor') if c.text.strip()]
+        contribs = [extractor.clean_single(c.text) for c in soup.find_all('a', class_='contributor') if c.text.strip()]
         if contribs:
             return ', '.join(contribs)
         return None
@@ -56,28 +89,34 @@ class Extractor:
     @staticmethod
     def extract_price(soup):
         price_span = soup.find('span', class_='a-offscreen')
-        return price_span.text.strip() if price_span else None
+        if price_span:
+            return extractor.clean_single(price_span.text)
+        return None
 
     @staticmethod
     def extract_rating(soup):
         rating_span = soup.find('span', id='acrPopover')
         if rating_span and 'title' in rating_span.attrs:
-            return rating_span['title'].split()[0]
+            return extractor.clean_single(rating_span['title']).split()[0]
         alt_span = soup.find('span', class_='a-icon-alt')
-        return alt_span.text.split()[0] if alt_span else None
+        if alt_span:
+            return extractor.clean_single(alt_span.text).split()[0]
+        return None
 
     @staticmethod
     def extract_number_of_reviews(soup):
         rev_span = soup.find('span', id='acrCustomerReviewText')
         if rev_span:
-            rev_text = rev_span.text.strip().split()[0].replace(',', '')
+            rev_text = extractor.clean_single(rev_span.text).split()[0].replace(',', '')
             return rev_text
         return None
 
     @staticmethod
     def extract_availability(soup):
         avail_div = soup.find('div', id='availability')
-        return avail_div.text.strip() if avail_div else None
+        if avail_div:
+            return extractor.clean_single(avail_div.text)
+        return None
 
     @staticmethod
     def extract_features(soup):
@@ -88,7 +127,7 @@ class Extractor:
         if not ul:
             return None
         features = [
-            span.text.strip()
+            extractor.clean_single(span.text)
             for li in ul.find_all('li')
             if (span := li.find('span', class_='a-list-item')) and span.text.strip()
         ]
@@ -100,7 +139,8 @@ class Extractor:
         if not desc_div:
             return None
         noscript = desc_div.find('noscript')
-        return (noscript.text if noscript else desc_div.text).strip() or None
+        text = noscript.text if noscript else desc_div.text
+        return extractor.clean_multi(text) or None
 
     @staticmethod
     def extract_product_details(soup):
@@ -112,9 +152,12 @@ class Extractor:
                 if span:
                     bold = span.find('span', class_='a-text-bold')
                     if bold:
-                        bold_text = re.sub(r'[\s\u200e\u200f]+', ' ', bold.text).strip()
-                        key = bold_text.rstrip(' :')
-                        value = re.sub(r'[\s\u200e\u200f]+', ' ', span.text.replace(bold.text, '')).strip()
+                        bold_text = bold.text
+                        bold_clean = extractor.clean_single(bold_text)
+                        key = bold_clean.rstrip(' :')
+                        span_text = span.text
+                        span_clean = extractor.clean_single(span_text)
+                        value = span_clean.replace(bold_clean, '', 1).strip()
                         if value:
                             details[key] = value
         else:
@@ -124,8 +167,8 @@ class Extractor:
                     th = row.find('th')
                     td = row.find('td')
                     if th and td:
-                        key = th.text.strip()
-                        value = td.text.strip()
+                        key = extractor.clean_single(th.text)
+                        value = extractor.clean_single(td.text)
                         if key and value:
                             details[key] = value
         return details
