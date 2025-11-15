@@ -13,9 +13,9 @@ class Extractor:
         'publisher': None, 'publication_date': None, 'language': None,
         'length': None, 'width': None, 'height': None,
         'item_weight': None, 'print_length': None,
-        'reading_age': None, 'edition': None, 'author': None, 'asin': None, 'book_format': None,
+        'reading_age': None, 'edition': None, 'author': None, 'asin': None,
         'series_name': None, 'best_sellers_rank': None, 'customer_reviews': None,
-        'description': None, 'product_url': None,
+        'description': None, 'product_url': None, 'book_format': None,
         'scrape_status': None, 'error_message': None
     }
 
@@ -26,10 +26,8 @@ class Extractor:
         'Item Weight': 'item_weight', 'Item weight': 'item_weight',
         'Print length': 'print_length', 'Paperback': 'print_length',
         'Reading age': 'reading_age', 'Edition': 'edition', 'ASIN': 'asin',
-        'Series': 'series_name',
-        'Part of': 'series_name',
-        'Part of series': 'series_name',
-        'Best Sellers Rank': 'best_sellers_rank'
+        'Series': 'series_name', 'Part of': 'series_name',
+        'Part of series': 'series_name', 'Best Sellers Rank': 'best_sellers_rank'
     }
 
     EUR_TO_USD_RATE = 1.08
@@ -69,57 +67,6 @@ class Extractor:
             return None
 
         return cleaned or None
-
-    @staticmethod
-    def extract_book_format(soup):
-        """
-        Extracts the current book format (Paperback, Hardcover, Kindle, etc.)
-        Priority:
-        1. Selected format in the price swatches (most reliable)
-        2. #productSubtitle if it contains a real format
-        3. Return None if only edition info or junk
-        """
-        # === 1. Check the selected swatch in the formats grid (MOST ACCURATE) ===
-        selected_swatch = soup.find('div', class_=re.compile(r'swatchElement.*selected'))
-        if selected_swatch:
-            title_span = selected_swatch.find('span', class_='slot-title')
-            if title_span:
-                text = title_span.get_text(strip=True)
-                # Extract the format name before "Format:"
-                match = re.search(r'^(.+?)(?:\s+Format:|$)', text)
-                if match:
-                    fmt = match.group(1).strip()
-                    if fmt and fmt.lower() not in {'kindle', 'paperback', 'hardcover', 'audiobook', 'library binding',
-                                                   'board book', 'mass market paperback',
-                                                   'spiral-bound'} == False:  # if it's a real format
-                        return fmt
-                    return fmt  # safe fallback
-
-        # === 2. Fallback to #productSubtitle ===
-        subtitle = soup.find('span', id='productSubtitle')
-        if not subtitle:
-            return None
-
-        text = subtitle.get_text(strip=True)
-
-        # If it contains real formats → extract
-        formats = ['Hardcover', 'Paperback', 'Kindle Edition', 'Library Binding',
-                   'Board book', 'Mass Market Paperback', 'Spiral-bound', 'Audio CD']
-        for fmt in formats:
-            if fmt.lower() in text.lower():
-                return fmt
-
-        # If only edition info like "3rd Edition" → ignore
-        if re.search(r'\d+(st|nd|rd|th)\s+Edition', text, re.I):
-            return None
-
-        # Anything else is probably not a format
-        return None
-
-    @staticmethod
-    def extract_price(soup):
-        price_span = soup.find('span', class_='a-offscreen')
-        return price_span.text.strip() if price_span else None
 
     @staticmethod
     def extract_rating(soup):
@@ -254,22 +201,49 @@ class Extractor:
         return product
 
     @staticmethod
-    def parse_price(raw_price):
-        if not raw_price:
-            return None
-        raw_price = raw_price.strip()
-        is_eur = '€' in raw_price or 'EUR' in raw_price.upper()
-        num_match = re.search(r'[\d,]+(?:\.\d+)?', raw_price)
-        if not num_match:
-            return None
-        clean_num = num_match.group(0).replace(',', '')
-        try:
-            value = float(clean_num)
-        except ValueError:
-            return None
-        if is_eur:
-            value *= Extractor.EUR_TO_USD_RATE
-        return f"{value:.2f}"
+    def extract_selected_format_and_price(soup):
+        selected = soup.find('div', class_=re.compile(r'swatchElement.*selected'))
+        if selected:
+            # Format
+            title_span = selected.find('span', class_='slot-title')
+            format_str = None
+            if title_span:
+                text = title_span.get_text(strip=True)
+                format_str = re.sub(r'\s*Format:.*$', '', text, flags=re.I).strip()
+
+            # Price
+            price = None
+            price_span = selected.find('span', class_='slot-price')
+            if price_span:
+                aria = price_span.find('span', attrs={'aria-label': True})
+                raw = aria['aria-label'] if aria and aria.get('aria-label') else price_span.get_text(strip=True)
+                raw = raw.strip()
+                is_eur = '€' in raw or 'EUR' in raw.upper()
+                num_match = re.search(r'[\d,]+(?:\.\d+)?', raw)
+                if num_match:
+                    try:
+                        value = float(num_match.group(0).replace(',', ''))
+                        if is_eur:
+                            value *= Extractor.EUR_TO_USD_RATE
+                        price = round(value, 2)
+                    except ValueError:
+                        price = None
+
+            return format_str, price
+
+        # Fallback for format only
+        subtitle = soup.find('span', id='productSubtitle')
+        if subtitle:
+            text = subtitle.get_text(strip=True)
+            if re.fullmatch(r'\d+(st|nd|rd|th)\s+Edition.*', text, re.I):
+                return None, None
+            match = re.match(r'([^,]+)', text)
+            if match:
+                fmt = match.group(1).strip()
+                fmt = re.sub(r'\s*–\s*$', '', fmt)
+                return fmt or None, None
+
+        return None, None
 
     def parse(self, html_content):
         soup = BeautifulSoup(html_content, 'html.parser')
@@ -279,13 +253,11 @@ class Extractor:
         extraction_funcs = {
             'title': self.extract_title,
             'author': self.extract_author,
-            'price': self.extract_price,
             'rating': self.extract_rating,
             'number_of_reviews': self.extract_number_of_reviews,
             'availability': self.extract_availability,
             'features': self.extract_features,
             'description': self.extract_description,
-            'book_format': self.extract_book_format,
         }
 
         for key, func in extraction_funcs.items():
@@ -293,6 +265,11 @@ class Extractor:
                 product[key] = func(soup)
             except Exception as e:
                 error_messages.append(f"Error extracting {key}: {str(e)}")
+
+        # Extract format + price from selected swatch (most accurate)
+        book_format, price = self.extract_selected_format_and_price(soup)
+        product['book_format'] = book_format
+        product['price'] = price  # float or None
 
         try:
             details = self.extract_product_details(soup)
@@ -340,9 +317,6 @@ class Extractor:
             product = self.parse_best_sellers_rank(product)
         except Exception as e:
             error_messages.append(f"Error parsing best sellers rank: {str(e)}")
-
-        raw_price = product.get('price')
-        product['price'] = self.parse_price(raw_price)
 
         try:
             isbn_10 = product.get('isbn_10')
