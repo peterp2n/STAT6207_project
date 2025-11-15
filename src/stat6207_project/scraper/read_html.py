@@ -37,23 +37,13 @@ class Extractor:
         self.df = None
 
     @staticmethod
-    def safe_convert(value, target_type=int):
-        """
-        Safely convert a string (or anything) to int or float.
-        Returns None on failure instead of raising an error.
-
-        Usage examples:
-        safe_convert("1,234", int)     → 1234
-        safe_convert("4.8", float)     → 4.8
-        safe_convert("junk", int)      → None
-        """
+    def safe_convert(value, target_type=float):
+        """Safely convert string → int/float, return None on failure"""
         if value is None:
             return None
-
         cleaned = str(value).replace(',', '').strip()
         if not cleaned:
             return None
-
         try:
             return target_type(cleaned)
         except (ValueError, TypeError):
@@ -110,7 +100,6 @@ class Extractor:
         rev_span = soup.find('span', id='acrCustomerReviewText')
         if not rev_span:
             return None
-
         raw = rev_span.text.strip().split()[0]
         return Extractor.safe_convert(raw, int)
 
@@ -170,9 +159,9 @@ class Extractor:
         dims = re.findall(r'([\d.]+)', dim_str)
         if len(dims) >= 3:
             float_dims = sorted([float(d) for d in dims], reverse=True)
-            product['length'] = str(float_dims[0])
-            product['width'] = str(float_dims[1])
-            product['height'] = str(float_dims[2])
+            product['length'] = float_dims[0]  # ← float
+            product['width'] = float_dims[1]  # ← float
+            product['height'] = float_dims[2]  # ← float
         return product
 
     @staticmethod
@@ -212,7 +201,7 @@ class Extractor:
                 value *= 35.274
             elif unit.startswith('lb') or unit.startswith('pound'):
                 value *= 16
-            product['item_weight'] = str(round(value, 2))
+            product['item_weight'] = round(value, 2)  # ← float with 2 decimals
         return product
 
     @staticmethod
