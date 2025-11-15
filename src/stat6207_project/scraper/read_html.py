@@ -37,6 +37,29 @@ class Extractor:
         self.df = None
 
     @staticmethod
+    def safe_convert(value, target_type=int):
+        """
+        Safely convert a string (or anything) to int or float.
+        Returns None on failure instead of raising an error.
+
+        Usage examples:
+        safe_convert("1,234", int)     → 1234
+        safe_convert("4.8", float)     → 4.8
+        safe_convert("junk", int)      → None
+        """
+        if value is None:
+            return None
+
+        cleaned = str(value).replace(',', '').strip()
+        if not cleaned:
+            return None
+
+        try:
+            return target_type(cleaned)
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
     def clean_isbn(isbn_str):
         return ''.join(c for c in (isbn_str or '') if c.isdigit() or c.upper() == 'X') or None
 
@@ -47,7 +70,6 @@ class Extractor:
 
     @staticmethod
     def extract_author(soup):
-        # Perfect author cleaning
         byline = soup.find('div', id='bylineInfo')
         if byline:
             raw = ', '.join([a.text.strip() for a in byline.find_all('span', class_='author') if a.text.strip()])
@@ -73,18 +95,15 @@ class Extractor:
     def extract_rating(soup):
         rating_span = soup.find('span', id='acrPopover')
         if rating_span and 'title' in rating_span.attrs:
-            rating = rating_span['title'].split()[0]
+            raw = rating_span['title'].split()[0]
         else:
             alt_span = soup.find('span', class_='a-icon-alt')
-            rating = alt_span.text.split()[0] if alt_span else None
+            raw = alt_span.text.split()[0] if alt_span else None
 
-        if rating == "Previous" or not rating:
+        if raw == "Previous" or not raw:
             return None
 
-        try:
-            return float(rating)
-        except ValueError:
-            return None
+        return Extractor.safe_convert(raw, float)
 
     @staticmethod
     def extract_number_of_reviews(soup):
@@ -92,11 +111,8 @@ class Extractor:
         if not rev_span:
             return None
 
-        raw = rev_span.text.strip().split()[0].replace(',', '')
-        try:
-            return int(raw)
-        except ValueError:
-            return None
+        raw = rev_span.text.strip().split()[0]
+        return Extractor.safe_convert(raw, int)
 
     @staticmethod
     def extract_availability(soup):
