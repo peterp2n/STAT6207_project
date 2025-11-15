@@ -9,7 +9,7 @@ class Extractor:
     EMPTY_PRODUCT = {
         'isbn': None, 'title': None, 'price': None,
         'rating': None, 'number_of_reviews': None, 'availability': None,
-        'features': None, 'isbn_10': None, 'isbn_13': None,
+        'isbn_10': None, 'isbn_13': None,
         'publisher': None, 'publication_date': None, 'language': None,
         'length': None, 'width': None, 'height': None,
         'item_weight': None, 'print_length': None,
@@ -106,17 +106,6 @@ class Extractor:
     def extract_availability(soup):
         avail_div = soup.find('div', id='availability')
         return avail_div.text.strip() if avail_div else None
-
-    @staticmethod
-    def extract_features(soup):
-        feature_div = soup.find('div', id='feature-bullets')
-        if not feature_div:
-            return None
-        ul = feature_div.find('ul')
-        if not ul:
-            return None
-        return [span.text.strip() for li in ul.find_all('li')
-                if (span := li.find('span', class_='a-list-item')) and span.text.strip()] or None
 
     @staticmethod
     def extract_description(soup):
@@ -275,7 +264,6 @@ class Extractor:
             'rating': self.extract_rating,
             'number_of_reviews': self.extract_number_of_reviews,
             'availability': self.extract_availability,
-            'features': self.extract_features,
             'description': self.extract_description,
         }
 
@@ -389,7 +377,18 @@ class Extractor:
 if __name__ == "__main__":
     ext = Extractor()
     html_folder = Path("data")
-    html_paths = list(html_folder.rglob("*.html"))[:100]
+
+    # All HTML files recursively
+    all_paths = list(html_folder.rglob("*.html"))
+
+    # Keep only files where the filename (without .html) is exactly 13 characters
+    # OR starts with "978" (your original logic)
+    html_paths = [
+        p for p in all_paths
+        if len(p.stem) == 13 or p.stem.startswith("product_978")
+    ][:100]  # limit to first 100 matching files
+
+    print(f"Processing {len(html_paths)} files...")
 
     for html_path in html_paths:
         content = Extractor.read_html(html_path)
@@ -397,4 +396,17 @@ if __name__ == "__main__":
             ext.parse(content)
 
     df = ext.to_dataframe()
+    api = (pl.scan_csv(html_folder / "books_api_cleaned.csv", schema_overrides={"isbn": pl.Utf8})
+           .select(["page_count", "isbn"]).collect())
+    merged2 = (df.join(api, left_on='isbn_13', right_on='isbn', how='left', suffix='_api')
+    .with_columns(
+    effective_length = (
+        pl.when(pl.col("print_length").is_not_null())
+          .then(pl.col("print_length"))
+          .when(pl.col("page_count").is_not_null() & (pl.col("page_count") != 0))
+          .then(pl.col("page_count"))
+          .otherwise(None)  # or pl.lit(None) / pl.null()
+        )
+    ))
+    # merged2.write_csv(html_folder / "merged2.csv")
     print(df)
