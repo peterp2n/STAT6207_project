@@ -25,7 +25,6 @@ class Extractor:
         'Dimensions': 'dimensions',
         'Item Weight': 'item_weight', 'Item weight': 'item_weight',
         'Print length': 'print_length',
-        # 'Paperback': 'print_length',
         'Reading age': 'reading_age', 'Edition': 'edition', 'ASIN': 'asin',
         'Series': 'series_name', 'Part of': 'series_name',
         'Part of series': 'series_name', 'Best Sellers Rank': 'best_sellers_rank'
@@ -310,9 +309,9 @@ class Extractor:
                         if nums:
                             lower = float(nums[0])
                             mean_age = (lower + float(nums[1])) / 2 if len(nums) >= 2 else lower
-                            value = str(int(mean_age)) if mean_age.is_integer() else f"{mean_age:.1f}"
+                            value = int(mean_age) if mean_age.is_integer() else mean_age
                         else:
-                            value = ""
+                            value = None
                     product[mapped_key] = value
         except Exception as e:
             error_messages.append(f"Error extracting product details: {str(e)}")
