@@ -88,9 +88,14 @@ class Extractor:
     @staticmethod
     def extract_number_of_reviews(soup):
         rev_span = soup.find('span', id='acrCustomerReviewText')
-        if rev_span:
-            return rev_span.text.strip().split()[0].replace(',', '')
-        return None
+        if not rev_span:
+            return None
+
+        raw = rev_span.text.strip().split()[0].replace(',', '')
+        try:
+            return int(raw)
+        except ValueError:
+            return None
 
     @staticmethod
     def extract_availability(soup):
