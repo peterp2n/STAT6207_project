@@ -24,7 +24,8 @@ class Extractor:
         'Publication date': 'publication_date', 'Language': 'language',
         'Dimensions': 'dimensions',
         'Item Weight': 'item_weight', 'Item weight': 'item_weight',
-        'Print length': 'print_length', 'Paperback': 'print_length',
+        'Print length': 'print_length',
+        # 'Paperback': 'print_length',
         'Reading age': 'reading_age', 'Edition': 'edition', 'ASIN': 'asin',
         'Series': 'series_name', 'Part of': 'series_name',
         'Part of series': 'series_name', 'Best Sellers Rank': 'best_sellers_rank'
@@ -38,7 +39,6 @@ class Extractor:
 
     @staticmethod
     def safe_convert(value, target_type=float):
-        """Safely convert string → int/float, return None on failure"""
         if value is None:
             return None
         cleaned = str(value).replace(',', '').strip()
@@ -159,9 +159,9 @@ class Extractor:
         dims = re.findall(r'([\d.]+)', dim_str)
         if len(dims) >= 3:
             float_dims = sorted([float(d) for d in dims], reverse=True)
-            product['length'] = float_dims[0]  # ← float
-            product['width'] = float_dims[1]  # ← float
-            product['height'] = float_dims[2]  # ← float
+            product['length'] = float_dims[0]
+            product['width'] = float_dims[1]
+            product['height'] = float_dims[2]
         return product
 
     @staticmethod
@@ -201,7 +201,7 @@ class Extractor:
                 value *= 35.274
             elif unit.startswith('lb') or unit.startswith('pound'):
                 value *= 16
-            product['item_weight'] = round(value, 2)  # ← float with 2 decimals
+            product['item_weight'] = round(value, 2)
         return product
 
     @staticmethod
@@ -298,7 +298,7 @@ class Extractor:
                     if mapped_key == 'print_length':
                         match = re.search(r'([\d,]+)', value)
                         if match:
-                            value = match.group(1).replace(',', '')
+                            value = self.safe_convert(match.group(1).replace(',', ''), int)
                     if mapped_key == 'reading_age':
                         nums = re.findall(r'\d+', value)
                         if nums:
