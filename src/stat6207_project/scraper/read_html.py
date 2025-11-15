@@ -190,18 +190,24 @@ class Extractor:
     def parse_item_weight(product):
         weight_str = product.get('item_weight')
         if not weight_str:
+            product['item_weight'] = None
             return product
+
         match = re.match(r'([\d.]+)\s*(ounces?|oz|grams?|g|kilograms?|kg|pounds?|lb)', weight_str, re.I)
-        if match:
-            value = float(match.group(1))
-            unit = match.group(2).lower()
-            if unit.startswith('g'):
-                value *= 0.035274
-            elif unit.startswith('kg'):
-                value *= 35.274
-            elif unit.startswith('lb') or unit.startswith('pound'):
-                value *= 16
-            product['item_weight'] = round(value, 2)
+        if not match:
+            product['item_weight'] = None  # ← explicitly set to None on failure
+            return product
+
+        value = float(match.group(1))
+        unit = match.group(2).lower()
+        if unit.startswith('g'):
+            value *= 0.035274
+        elif unit.startswith('kg'):
+            value *= 35.274
+        elif unit.startswith('lb') or unit.startswith('pound'):
+            value *= 16
+
+        product['item_weight'] = round(value, 2)  # always float
         return product
 
     @staticmethod
