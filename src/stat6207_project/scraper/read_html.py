@@ -47,6 +47,7 @@ class Extractor:
 
     @staticmethod
     def extract_author(soup):
+        # Perfect author cleaning
         byline = soup.find('div', id='bylineInfo')
         if byline:
             raw = ', '.join([a.text.strip() for a in byline.find_all('span', class_='author') if a.text.strip()])
@@ -72,16 +73,16 @@ class Extractor:
     def extract_rating(soup):
         rating_span = soup.find('span', id='acrPopover')
         if rating_span and 'title' in rating_span.attrs:
-            raw = rating_span['title'].split()[0]
+            rating = rating_span['title'].split()[0]
         else:
             alt_span = soup.find('span', class_='a-icon-alt')
-            raw = alt_span.text.split()[0] if alt_span else None
+            rating = alt_span.text.split()[0] if alt_span else None
 
-        if raw == "Previous" or not raw:
+        if rating == "Previous" or not rating:
             return None
 
         try:
-            return float(raw)
+            return float(rating)
         except ValueError:
             return None
 
@@ -215,14 +216,12 @@ class Extractor:
     def extract_selected_format_and_price(soup):
         selected = soup.find('div', class_=re.compile(r'swatchElement.*selected'))
         if selected:
-            # Format
             title_span = selected.find('span', class_='slot-title')
             format_str = None
             if title_span:
                 text = title_span.get_text(strip=True)
                 format_str = re.sub(r'\s*Format:.*$', '', text, flags=re.I).strip()
 
-            # Price
             price = None
             price_span = selected.find('span', class_='slot-price')
             if price_span:
@@ -242,7 +241,6 @@ class Extractor:
 
             return format_str, price
 
-        # Fallback for format only
         subtitle = soup.find('span', id='productSubtitle')
         if subtitle:
             text = subtitle.get_text(strip=True)
@@ -277,10 +275,9 @@ class Extractor:
             except Exception as e:
                 error_messages.append(f"Error extracting {key}: {str(e)}")
 
-        # Extract format + price from selected swatch (most accurate)
         book_format, price = self.extract_selected_format_and_price(soup)
         product['book_format'] = book_format
-        product['price'] = price  # float or None
+        product['price'] = price
 
         try:
             details = self.extract_product_details(soup)
