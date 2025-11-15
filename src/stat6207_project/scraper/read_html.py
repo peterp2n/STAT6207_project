@@ -72,12 +72,18 @@ class Extractor:
     def extract_rating(soup):
         rating_span = soup.find('span', id='acrPopover')
         if rating_span and 'title' in rating_span.attrs:
-            rating = rating_span['title'].split()[0]
+            raw = rating_span['title'].split()[0]
         else:
             alt_span = soup.find('span', class_='a-icon-alt')
-            rating = alt_span.text.split()[0] if alt_span else None
+            raw = alt_span.text.split()[0] if alt_span else None
 
-        return None if rating == "Previous" else rating
+        if raw == "Previous" or not raw:
+            return None
+
+        try:
+            return float(raw)
+        except ValueError:
+            return None
 
     @staticmethod
     def extract_number_of_reviews(soup):
