@@ -1,8 +1,33 @@
 import polars as pl
 from pathlib import Path
+from src.stat6207_project.scraper.read_html import Extractor
 
 
 if __name__ == "__main__":
+
+    ext = Extractor()
+    html_folder = Path("data")
+
+    # All HTML files recursively
+    all_paths = list(html_folder.rglob("*.html"))
+
+    # Keep only files where the filename (without .html) is exactly 13 characters
+    # OR starts with "978" (your original logic)
+    html_paths = [
+        p for p in all_paths
+        if len(p.stem) == 13 or p.stem.startswith("product_978")
+    ]
+
+    print(f"Processing {len(html_paths)} files...")
+
+    for html_path in html_paths:
+        content = Extractor.read_html(html_path)
+        if content:
+            ext.parse(content)
+
+    df = ext.to_dataframe()
+    # df.write_csv(html_folder / "amazon_cleaned.csv")
+
     html_folder = Path("data")
     df = pl.scan_csv(html_folder / "amazon_cleaned.csv")
     api = (pl.scan_csv(html_folder / "books_api_cleaned.csv", schema_overrides={"isbn": pl.Utf8})
