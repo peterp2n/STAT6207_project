@@ -7,16 +7,12 @@ from datetime import datetime
 
 class Extractor:
     EMPTY_PRODUCT = {
-        'isbn': None, 'title': None, 'price': None,
-        'rating': None, 'number_of_reviews': None, 'availability': None,
-        'isbn_10': None, 'isbn_13': None,
-        'publisher': None, 'publication_date': None, 'language': None,
-        'length': None, 'width': None, 'height': None,
-        'item_weight': None, 'print_length': None,
-        'reading_age': None, 'edition': None, 'author': None, 'asin': None,
-        'series_name': None, 'best_sellers_rank': None, 'customer_reviews': None,
-        'description': None, 'product_url': None, 'book_format': None,
-        'scrape_status': None, 'error_message': None
+        'isbn': None, 'title': None, 'publisher': None, 'publication_date': None,
+        'series_name': None, 'book_format': None, 'language': None, 'print_length': None,
+        'isbn_10': None, 'isbn_13': None, 'item_weight': None, 'length': None, 'width': None, 'height': None,
+        'rating': None, 'number_of_reviews': None, 'availability': None, 'price': None, 'best_sellers_rank': None,
+        'customer_reviews': None, 'reading_age': None, 'edition': None, 'author': None, 'asin': None,
+        'description': None, 'product_url': None, 'scrape_status': None, 'error_message': None
     }
 
     FIELD_MAPPINGS = {
@@ -195,7 +191,7 @@ class Extractor:
         elif unit.startswith('lb') or unit.startswith('pound'):
             value *= 16
 
-        product['item_weight'] = round(value, 2)  # always float
+        product['item_weight'] = round(value, 2)  # always use ounce float
         return product
 
     @staticmethod
@@ -283,11 +279,13 @@ class Extractor:
                 mapped_key = self.FIELD_MAPPINGS.get(label)
                 if mapped_key:
                     if mapped_key == 'publication_date':
-                        try:
-                            dt = datetime.strptime(value, "%B %d, %Y")
-                            value = dt.strftime("%Y-%m-%d")
-                        except ValueError:
-                            print(f"Failed to convert publication date: {value}")
+                        for format in ("%B %d, %Y", "%d %b. %Y"):
+                            try:
+                                dt = datetime.strptime(value, format)
+                                value = dt.strftime("%Y-%m-%d")
+                                break
+                            except ValueError:
+                                print(f"Failed to convert publication date: {value}")
                     if mapped_key == 'print_length':
                         match = re.search(r'([\d,]+)', value)
                         if match:
@@ -365,6 +363,17 @@ class Extractor:
 
     def to_dataframe(self):
         self.df = pl.DataFrame(self.results or [self.EMPTY_PRODUCT])
+        self.df = self.df.with_columns(
+            ['isbn', 'title', 'publisher', 'publication_date',
+            'series_name', 'book_format', 'language', 'print_length',
+            'isbn_10', 'isbn_13',
+            'item_weight', 'length', 'width', 'height',
+            'rating', 'number_of_reviews', 'availability',
+            'price', 'best_sellers_rank', 'customer_reviews',
+            'reading_age', 'edition', 'author', 'asin',
+            'description', 'product_url',
+            'scrape_status', 'error_message']
+        )
         return self.df
 
     @staticmethod
