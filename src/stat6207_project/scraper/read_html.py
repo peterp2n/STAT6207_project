@@ -354,9 +354,12 @@ class Extractor:
         except Exception as e:
             error_messages.append(f"Error setting customer reviews: {str(e)}")
 
-        product['scrape_status'] = 'success' if not error_messages else 'partial_success'
+        product['scrape_status'] = 'success'
         if error_messages:
+            product['scrape_status'] = 'fail'
             product['error_message'] = '; '.join(error_messages)
+        elif (not product["isbn"] or not product["title"]):
+            product['scrape_status'] = 'fail'
 
         self.results.append(product)
 
@@ -386,7 +389,7 @@ if __name__ == "__main__":
     html_paths = [
         p for p in all_paths
         if len(p.stem) == 13 or p.stem.startswith("product_978")
-    ][:100]  # limit to first 100 matching files
+    ]
 
     print(f"Processing {len(html_paths)} files...")
 
@@ -398,15 +401,14 @@ if __name__ == "__main__":
     df = ext.to_dataframe()
     api = (pl.scan_csv(html_folder / "books_api_cleaned.csv", schema_overrides={"isbn": pl.Utf8})
            .select(["page_count", "isbn"]).collect())
-    merged2 = (df.join(api, left_on='isbn_13', right_on='isbn', how='left', suffix='_api')
-    .with_columns(
-    effective_length = (
-        pl.when(pl.col("print_length").is_not_null())
-          .then(pl.col("print_length"))
-          .when(pl.col("page_count").is_not_null() & (pl.col("page_count") != 0))
-          .then(pl.col("page_count"))
-          .otherwise(None)  # or pl.lit(None) / pl.null()
-        )
-    ))
+    merged2 = df.join(api, left_on='isbn_13', right_on='isbn', how='left', suffix='_api').with_columns(
+        # Use original print_length, if present; else use page_count from API
+        print_length=
+        pl.when(pl.col("print_length").is_not_null()).then(pl.col("print_length"))
+        .when(pl.col("page_count").is_not_null() & (pl.col("page_count") != 0)).then(pl.col("page_count"))
+        .otherwise(None)
+    # Drop the page_count column after merging
+    ).drop("page_count")
+
     # merged2.write_csv(html_folder / "merged2.csv")
     print(df)
