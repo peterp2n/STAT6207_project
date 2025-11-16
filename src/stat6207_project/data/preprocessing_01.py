@@ -46,6 +46,6 @@ if __name__ == "__main__":
         # Drop the page_count column after merging
     ).drop("page_count")
 
-    merged.collect().write_csv(html_folder / "merged.csv")
+    # merged.collect().write_csv(html_folder / "merged.csv")
 
     pass
