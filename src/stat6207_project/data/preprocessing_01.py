@@ -26,7 +26,7 @@ if __name__ == "__main__":
             ext.parse(content)
 
     df = ext.to_dataframe()
-    # df.collect().write_csv(html_folder / "amazon_cleaned.csv")
+    # df.write_csv(html_folder / "amazon_cleaned.csv")
 
     html_folder = Path("data")
     df = pl.scan_csv(html_folder / "amazon_cleaned.csv", schema_overrides={
@@ -34,7 +34,7 @@ if __name__ == "__main__":
         "isbn_10": pl.Utf8,
         "isbn_13": pl.Utf8,
         "best_sellers_rank": pl.Int32
-    }).filter(pl.col("scrape_status") == "success")
+    })
     api = (pl.scan_csv(html_folder / "books_api_cleaned.csv", schema_overrides={"isbn": pl.Utf8})
            .select(["page_count", "isbn"]))
     merged = df.join(api, left_on='isbn_13', right_on='isbn', how='left', suffix='_api').with_columns(
@@ -46,6 +46,6 @@ if __name__ == "__main__":
         # Drop the page_count column after merging
     ).drop("page_count")
 
-    # merged.collect().write_csv(html_folder / "merged.csv")
+    merged.collect().write_csv(html_folder / "merged.csv")
 
     pass
