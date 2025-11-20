@@ -78,10 +78,8 @@ if __name__ == "__main__":
                 pl.col("publication_date").str.to_date(format="%-d/%-m/%Y", strict=False),
                 pl.col("publication_date").str.to_date(format="%d/%m/%Y", strict=False),
             ]).alias("publication_date"),
-            pl.col("publisher").str.to_lowercase().str.replace_many(
-                [r"\s?ltd\s?", r"[,\s]?inc.?\s?"],
-                ["", ""]
-            ),
+            pl.col("publisher").str.to_lowercase(),
+            pl.col("author").str.to_lowercase(),
             pl.col("book_format").str.to_lowercase().str.replace_all(r".*kindle.*", "kindle"),
             pl.col("language").str.to_lowercase(),
             pl.col("description")
