@@ -42,7 +42,7 @@ if __name__ == "__main__":
 
     useful_cols = ('isbn', 'title', 'publisher', 'publication_date', 'book_format', "reading_age",
                    'print_length', 'item_weight', 'length', 'width', 'height', 'rating', 'number_of_reviews',
-                   'price', 'best_sellers_rank', 'customer_reviews', 'description')
+                   'price', 'best_sellers_rank', 'customer_reviews')
 
     merge3 = (
         pl.concat(
@@ -65,5 +65,18 @@ if __name__ == "__main__":
     )
 
     # merge3_std_dummy.write_csv(Path("data") / "merged3_std_dummy.csv")
+
+    # # Check associations
+    # reading_age_by_publisher = (
+    #     merge3
+    #     .group_by('publisher')
+    #     .agg(pl.col('reading_age').count().alias('ra_count'))
+    # )
+    # reading_age_by_format = merge3.group_by('book_format')['reading_age'].value_counts(normalize=True)
+    #
+    #
+    # merge3.group_by(['publisher', 'book_format']).agg(
+    #     pl.col('reading_age').mode().first()
+    # ).filter(pl.col('reading_age').is_not_null())
 
     pass
