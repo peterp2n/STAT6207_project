@@ -38,16 +38,20 @@ if __name__ == "__main__":
         "best_sellers_rank": pl.Int32
     }).collect()
     api = (pl.scan_csv(html_folder / "books_api_cleaned.csv", schema_overrides={"isbn": pl.Utf8})
-           .select(["page_count", "isbn"])).collect()
+           .select(["page_count", "isbn", "description"])).collect()
     merged = df.join(api, left_on='isbn_13', right_on='isbn', how='left', suffix='_api').with_columns(
         # Use original print_length, if present; else use page_count from API
-        print_length=
         pl.when(pl.col("print_length").is_not_null()).then(pl.col("print_length"))
         .when(pl.col("page_count").is_not_null() & (pl.col("page_count") != 0)).then(pl.col("page_count"))
         .otherwise(None)
+        .alias("print_length"),
+        pl.when(pl.col("description").is_not_null()).then(pl.col("description"))
+        .when(pl.col("description_api").is_not_null()).then(pl.col("description_api"))
+        .otherwise(None)
+        .alias("description")
         # Drop the page_count column after merging
-    ).drop("page_count")
+    ).drop(["page_count", "description_api"])
 
-    merged.write_csv(html_folder / "merged.csv")
+    # merged.write_csv(html_folder / "merged.csv")
     print(df)
     pass

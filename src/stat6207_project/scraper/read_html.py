@@ -114,6 +114,8 @@ class Extractor:
     @staticmethod
     def extract_product_details(soup):
         details = {}
+
+        # 1. Old bullet format (detailBullets_feature_div)
         bullet_div = soup.find('div', id='detailBullets_feature_div')
         if bullet_div:
             for li in bullet_div.find_all('li'):
@@ -125,14 +127,47 @@ class Extractor:
                         value = re.sub(r'[\s\u200e\u200f]+', ' ', span.text.replace(bold.text, '')).strip()
                         if value:
                             details[key] = value
-        else:
-            table = soup.find('table', id='productDetails_techSpec_section_1')
-            if table:
-                for row in table.find_all('tr'):
-                    th = row.find('th')
-                    td = row.find('td')
-                    if th and td:
-                        details[th.text.strip()] = td.text.strip()
+
+        # 2. Old technical specs table
+        table = soup.find('table', id='productDetails_techSpec_section_1')
+        if not details and table:  # only use if we haven't found anything yet
+            for row in table.find_all('tr'):
+                th = row.find('th')
+                td = row.find('td')
+                if th and td:
+                    key = th.text.strip()
+                    value = td.text.strip()
+                    details[key] = value
+
+        # 3. Current format – the <ul class="... detail-bullet-list"> you provided
+        if not details:
+            ul = soup.find('ul', class_=lambda c: c and 'detail-bullet-list' in c)
+            if ul:
+                for li in ul.find_all('li'):
+                    item_span = li.find('span', class_='a-list-item')
+                    if not item_span:
+                        continue
+
+                    bold = item_span.find('span', class_='a-text-bold')
+                    if not bold:
+                        continue
+
+                    raw_key = bold.get_text(strip=True)
+                    key = re.sub(r'[\u200e\u200f]+', '', raw_key)  # remove invisible RTL chars
+                    key = re.sub(r'\s+', ' ', key).strip().rstrip(':').strip()
+
+                    # Skip Customer Reviews row – rating is extracted separately
+                    if 'customer reviews' in key.lower():
+                        continue
+
+                    # Value is everything in the item_span after the bold text
+                    full_text = item_span.get_text(strip=True)
+                    value = full_text.replace(raw_key, '', 1).strip()
+                    value = re.sub(r'^[:\s]+', '', value)  # clean leading colon/space
+
+                    if value:
+                        details[key] = value
+
         return details
 
     @staticmethod
@@ -153,16 +188,42 @@ class Extractor:
         pub_str = product.get('publisher')
         if not pub_str:
             return product
+
+        # Formats for date parsing
+        date_formats = ["%B %d, %Y", "%d %b. %Y"]
+
+        # Try matching with edition: 'Publisher; Edition (Date)'
         match = re.match(r'^(.*?);\s*(.*?)\s*\((.*?)\)$', pub_str)
         if match:
-            product['publisher'] = match.group(1)
-            product['edition'] = match.group(2)
-            product['publication_date'] = match.group(3)
-            return product
+            pub = match.group(1).strip()
+            ed = match.group(2).strip()
+            dt_str = match.group(3).strip()
+            for fmt in date_formats:
+                try:
+                    dt = datetime.strptime(dt_str, fmt)
+                    product['publisher'] = pub
+                    product['edition'] = ed
+                    product['publication_date'] = dt.strftime("%Y-%m-%d")
+                    return product
+                except ValueError:
+                    pass
+            # If date parsing fails, do not split; retain original
+
+        # Try matching without edition: 'Publisher (Date)'
         match = re.match(r'^(.*)\s*\((.*)\)$', pub_str)
         if match:
-            product['publisher'] = match.group(1)
-            product['publication_date'] = match.group(2)
+            pub = match.group(1).strip()
+            dt_str = match.group(2).strip()
+            for fmt in date_formats:
+                try:
+                    dt = datetime.strptime(dt_str, fmt)
+                    product['publisher'] = pub
+                    product['publication_date'] = dt.strftime("%Y-%m-%d")
+                    return product
+                except ValueError:
+                    pass
+            # If date parsing fails, do not split; retain original
+
         return product
 
     @staticmethod
@@ -360,10 +421,11 @@ class Extractor:
             product['scrape_status'] = 'fail'
 
         self.results.append(product)
+        return product
 
     def to_dataframe(self):
         self.df = pl.DataFrame(self.results or [self.EMPTY_PRODUCT])
-        self.df = self.df.with_columns(
+        self.df = self.df.select(
             ['isbn', 'title', 'publisher', 'publication_date',
             'series_name', 'book_format', 'language', 'print_length',
             'isbn_10', 'isbn_13',
