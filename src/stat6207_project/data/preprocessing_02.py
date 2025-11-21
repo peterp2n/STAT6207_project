@@ -24,29 +24,6 @@ def load_df(csv_path: str|Path) -> pl.DataFrame:
     ).filter(pl.col("scrape_status") == "success")
     return input
 
-def standardize_columns(lazyframe: pl.LazyFrame) -> pl.LazyFrame:
-    """
-    Standardize all numeric columns using z-score normalization.
-
-    Parameters
-    ----------
-    lazyframe : pl.LazyFrame
-        Input LazyFrame to standardize
-
-    Returns
-    -------
-    pl.LazyFrame
-        LazyFrame with standardized numeric columns
-    """
-    df_copy = lazyframe.clone()
-
-    # Standardize all numeric columns: (x - mean) / std
-    df_standardized = df_copy.with_columns(
-        ((cs.numeric() - cs.numeric().mean()) / cs.numeric().std())
-    )
-
-    return df_standardized
-
 if __name__ == "__main__":
     csv = Path("data") / "merged.csv"
     merge = load_df(csv)
@@ -65,7 +42,7 @@ if __name__ == "__main__":
         "asin", "edition", "series_name",
         "availability",  "product_url",
         "scrape_status", 'isbn_10', 'isbn_13'])
-    merge2 = merge.select(
+    merge2 = (merge.select(
             ['isbn', 'title', 'publisher', 'publication_date',
              'book_format', "reading_age", 'language', 'print_length',
              'item_weight', 'length', 'width', 'height',
@@ -85,6 +62,13 @@ if __name__ == "__main__":
             pl.col("description")
             .str.replace("\xa0", " ", literal=True)  # literal replacement
             .str.replace(r"\s?Read more", "", literal=False)
+    )
+    .with_columns(
+        pl.when(pl.col("description").str.len_chars() < 100)
+        .then(pl.lit(""))
+        .otherwise(pl.col("description"))
+        .alias("description")
+    )
     ).collect()
     # Merge2 columns: ['isbn', 'title', 'publisher', 'publication_date', 'book_format', 'reading_age', 'language',
     # 'print_length', 'item_weight', 'length', 'width', 'height', 'rating', 'number_of_reviews', 'price',
