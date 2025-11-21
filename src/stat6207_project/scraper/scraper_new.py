@@ -7,7 +7,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from src.stat6207_project.data.Data import Data
+from src.stat6207_project.scraper.Data import Data
 from typing import List, Optional, Dict
 from webdriver_manager.firefox import GeckoDriverManager
 import time
@@ -482,14 +482,24 @@ def main():
     arguments = {
         "db_path": Path("data") / "Topic1_dataset.sqlite",
         "headless": False,  # Set to True for headless mode
-        "json_folder": Path("data") / "scrapes",
+        "json_folder": Path("data") / "scrapes_target",
     }
 
     scraper = TorScraper(arguments)
     scraper.load_all_tables()
-    que = scraper.table_holder.get("products").select("barcode2").unique(
-        maintain_order=True).collect().to_series().to_list()
-    scraper.load_queries(queries=que[:5])
+    # que = scraper.table_holder.get("products").select("barcode2").unique(
+    #     maintain_order=True).collect().to_series().to_list()
+    que = [
+        "9781338896459",
+        "9781338896398",
+        "9789814918015",
+        "9781338347258",
+        "9789810950286",
+        "9781529097160",
+        "9781913484552",
+        "9781913484521"
+    ]
+    scraper.load_queries(queries=que)
 
     try:
         # Create browser
