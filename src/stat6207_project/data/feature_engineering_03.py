@@ -4,27 +4,11 @@ from pathlib import Path
 
 
 def standardize_columns(lf_input: pl.LazyFrame) -> pl.LazyFrame:
-    """
-    Standardize all numeric columns using z-score normalization.
-
-    Parameters
-    ----------
-    lazyframe : pl.LazyFrame
-        Input LazyFrame to standardize
-
-    Returns
-    -------
-    pl.LazyFrame
-        LazyFrame with standardized numeric columns
-    """
-    df_copy = lf_input.clone()
-
-    # Standardize all numeric columns: (x - mean) / std
-    df_standardized = df_copy.with_columns(
-        ((cs.numeric() - cs.numeric().mean()) / cs.numeric().std())
+    numeric_cols = lf_input.select(pl.col(pl.NUMERIC_DTYPES)).columns
+    return lf_input.with_columns(
+        [((pl.col(col) - pl.col(col).mean()) / pl.col(col).std()).alias(col) for col in numeric_cols]
     )
 
-    return df_standardized
 
 
 def clean_publishers(lf_input: pl.LazyFrame) -> tuple[pl.LazyFrame, list[str]]:
@@ -122,7 +106,7 @@ if __name__ == "__main__":
 
     useful_cols = ('isbn', 'title', 'publisher', 'publication_date', 'book_format', "reading_age",
                    'print_length', 'item_weight', 'length', 'width', 'height', 'rating', 'number_of_reviews',
-                   'price', 'best_sellers_rank', 'customer_reviews', 'author', 'description')
+                   'price', 'best_sellers_rank', 'customer_reviews', 'description')
     cleaned_publishers, _ = clean_publishers(merge3)
 
 
@@ -131,6 +115,5 @@ if __name__ == "__main__":
         .select(useful_cols).collect()
         .to_dummies(columns=["book_format", "publisher"])
     )
-
 
     pass
