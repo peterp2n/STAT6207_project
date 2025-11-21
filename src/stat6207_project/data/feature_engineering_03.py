@@ -1,5 +1,8 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import polars as pl
-import polars.selectors as cs
+import seaborn as sns
 from pathlib import Path
 
 
@@ -92,6 +95,21 @@ def clean_publishers(lf_input: pl.LazyFrame) -> tuple[pl.LazyFrame, list[str]]:
 
     return cleaned, unique_publishers
 
+def add_age_bins(reading_age_series: pl.Series) -> pl.Series:
+    bins = [0, 2, 5, 7, 10, 1000]
+    labels = ["baby", "toddler", "preschool", "preadolescence", "others"]
+
+    pd_reading_age = reading_age_series.to_pandas()
+    pd_categories = pd.cut(
+        pd_reading_age,
+        bins=bins,
+        labels=labels,
+        right=False,       # intervals are closed on the left, open on the right
+        include_lowest=True
+    )
+    pl_categories = pl.from_pandas(pd_categories).cast(pl.Utf8)
+    return pl_categories
+
 
 if __name__ == "__main__":
     csv = Path("data") / "merged2.csv"
@@ -102,12 +120,27 @@ if __name__ == "__main__":
         )
     )
 
-    merge3 = standardize_columns(merge2)
+
+
+    # Group the reading_age into five bins
+    # pd_reading_age = merge2.select("reading_age").collect()["reading_age"].to_pandas()
+    # bins_reading_age = pd.cut(x=pd_reading_age, bins=[0, 2, 5, 7, 10, 20], labels=["baby", "toddler", "preschool", "preadolescence", "others"])
+    # pl_bins_reading_age = pl.from_pandas(bins_reading_age).cast(pl.Utf8)
+    unclean_ages = merge2.select("reading_age").collect()["reading_age"]
+    pl_bins_reading_age = add_age_bins(unclean_ages)
+    pl_bins_reading_age_df = pl.DataFrame({"reading_age": pl_bins_reading_age})
+    merge2 = pl.concat(
+        [merge2.drop("reading_age").collect(), pl_bins_reading_age_df],
+        how="horizontal"
+    )
+
+    merge3 = merge2
+    # merge3 = standardize_columns(merge2)
 
     useful_cols = ('isbn', 'title', 'publisher', 'publication_date', 'book_format', "reading_age",
                    'print_length', 'item_weight', 'length', 'width', 'height', 'rating', 'number_of_reviews',
                    'price', 'best_sellers_rank', 'customer_reviews', 'description')
-    cleaned_publishers, _ = clean_publishers(merge3)
+    merge3, _ = clean_publishers(merge3)
 
 
     merge3 = (
@@ -115,5 +148,33 @@ if __name__ == "__main__":
         .select(useful_cols).collect()
         .to_dummies(columns=["book_format", "publisher"])
     )
+
+
+
+    # age_groups = (
+    #     merge3
+    #     .select("reading_age")
+    #     .filter(pl.col("reading_age").is_not_null())
+    #     .collect()
+    #     .to_series()
+    #     .to_list()
+    # )
+    # plt.hist(age_groups, bins=30)
+    # plt.show()
+
+    # merge3.write_csv(Path("data") / "merged3.csv")
+
+    # arguments = {
+    #     "db_path": Path("data") / "Topic1_dataset.sqlite",
+    #     "headless": False,  # Set to True for headless mode
+    #     "json_folder": Path("data") / "scrapes",
+    # }
+
+    # data = Data(arguments)
+    # data.load_all_tables()
+    # purchase = data.table_holder.get("purchase").collect()
+    # products = data.table_holder.get("products").collect()
+    # sales = data.table_holder.get("sales").collect()
+    # shops = data.table_holder.get("shops").collect()
 
     pass
