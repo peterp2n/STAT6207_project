@@ -154,9 +154,10 @@ if __name__ == "__main__":
         .then(pl.lit(""))
         .otherwise(pl.col("description"))
         .alias("description"),
-        pl.when(pl.col("book_format").is_in(["board book", "cards", "paperback", "hardcover", "kindle", "library binding"]))
+        pl.when(pl.col("book_format").is_in(["board book", "cards", "paperback", "hardcover", "library binding"]))
         .then(pl.col("book_format"))
-        .otherwise(pl.lit(None)).alias("book_format")
+        .otherwise(pl.lit(None))
+        .alias("book_format")
 
     )
     ).collect()
