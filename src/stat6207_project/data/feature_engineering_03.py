@@ -1,12 +1,12 @@
 import pandas as pd
 import polars as pl
+import polars.selectors as cs
 from pathlib import Path
 
 
 def standardize_columns(lf_input: pl.LazyFrame) -> pl.LazyFrame:
-    numeric_cols = lf_input.select(pl.col(pl.NUMERIC_DTYPES)).columns
     return lf_input.with_columns(
-        [((pl.col(col) - pl.col(col).mean()) / pl.col(col).std()).alias(col) for col in numeric_cols]
+        (cs.numeric() - cs.numeric().mean()) / cs.numeric().std()
     )
 
 
