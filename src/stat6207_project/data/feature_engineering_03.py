@@ -51,11 +51,11 @@ if __name__ == "__main__":
         ).select(useful_cols)
     )
 
-    merge3.write_csv(Path("data") / "merged3.csv")
+    # merge3.write_csv(Path("data") / "merged3.csv")
 
     # Standardize numeric columns
     merge3_std = standardize_columns(merge3)
-    merge3_std.write_csv(Path("data") / "merged3_std.csv")
+    # merge3_std.write_csv(Path("data") / "merged3_std.csv")
 
     # Standardized with dummies
     merge3_std_dummy = (
@@ -64,6 +64,6 @@ if __name__ == "__main__":
         .to_dummies(columns=["book_format", "publisher"])
     )
 
-    merge3_std_dummy.write_csv(Path("data") / "merged3_std_dummy.csv")
+    # merge3_std_dummy.write_csv(Path("data") / "merged3_std_dummy.csv")
 
     pass
