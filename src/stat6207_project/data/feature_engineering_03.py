@@ -12,7 +12,7 @@ def standardize_columns(lf_input: pl.LazyFrame) -> pl.LazyFrame:
 
 def add_age_bins(reading_age_series: pl.Series) -> tuple[pl.Series, pl.DataFrame]:
     bins = [0, 2, 5, 7, 10, 1000]
-    labels = ["baby", "toddler", "preschool", "preadolescence", "others"]
+    labels = ["baby", "toddler", "preschool", "preadolescence", "adolescence or above"]
 
     pd_reading_age = reading_age_series.to_pandas()
     pd_categories = pd.cut(
@@ -51,11 +51,11 @@ if __name__ == "__main__":
         ).select(useful_cols)
     )
 
-    # merge3.write_csv(Path("data") / "merged3.csv")
+    merge3.write_csv(Path("data") / "merged3.csv")
 
     # Standardize numeric columns
     merge3_std = standardize_columns(merge3)
-    # merge3_std.write_csv(Path("data") / "merged3_std.csv")
+    merge3_std.write_csv(Path("data") / "merged3_std.csv")
 
     # Standardized with dummies
     merge3_std_dummy = (
@@ -64,19 +64,6 @@ if __name__ == "__main__":
         .to_dummies(columns=["book_format", "publisher"])
     )
 
-    # merge3_std_dummy.write_csv(Path("data") / "merged3_std_dummy.csv")
-
-    # # Check associations
-    # reading_age_by_publisher = (
-    #     merge3
-    #     .group_by('publisher')
-    #     .agg(pl.col('reading_age').count().alias('ra_count'))
-    # )
-    # reading_age_by_format = merge3.group_by('book_format')['reading_age'].value_counts(normalize=True)
-    #
-    #
-    # merge3.group_by(['publisher', 'book_format']).agg(
-    #     pl.col('reading_age').mode().first()
-    # ).filter(pl.col('reading_age').is_not_null())
+    merge3_std_dummy.write_csv(Path("data") / "merged3_std_dummy.csv")
 
     pass
