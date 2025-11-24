@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import polars as pl
 import polars.selectors as cs
 import seaborn as sns
@@ -107,6 +108,22 @@ def clean_publishers(lf_input: pl.LazyFrame) -> tuple[pl.LazyFrame, list[str]]:
 
     return cleaned, unique_publishers
 
+def add_age_bins(reading_age_series: pl.Series) -> tuple[pl.Series, pl.DataFrame]:
+    bins = [0, 2, 5, 7, 10, 1000]
+    labels = ["baby", "toddler", "preschool", "preadolescence", "adolescence or above"]
+
+    pd_reading_age = reading_age_series.to_pandas()
+    pd_categories = pd.cut(
+        pd_reading_age,
+        bins=bins,
+        labels=labels,
+        right=False,       # intervals are closed on the left, open on the right
+        include_lowest=True
+    )
+    pl_categories = pl.from_pandas(pd_categories).cast(pl.Utf8)
+    df = pl.DataFrame({"reading_age": pl_categories})
+    return pl_categories, df
+
 if __name__ == "__main__":
     csv = Path("data") / "merged.csv"
     merge = load_df(csv)
@@ -143,7 +160,8 @@ if __name__ == "__main__":
             pl.col("book_format").str.to_lowercase()
             .str.replace_all(r".*kindle.*", "kindle")
             .str.replace_all(r".*card.*", "cards")
-            .str.replace_all(r".*paperback.*", "paperback"),
+            .str.replace_all(r".*paperback.*", "paperback")
+            .str.replace_all(" ", "_"),
             pl.col("language").str.to_lowercase(),
             pl.col("description")
             .str.replace("\xa0", " ", literal=True)  # literal replacement
@@ -154,18 +172,29 @@ if __name__ == "__main__":
         .then(pl.lit(""))
         .otherwise(pl.col("description"))
         .alias("description"),
-        pl.when(pl.col("book_format").is_in(["board book", "cards", "paperback", "hardcover", "kindle", "library binding"]))
+        pl.when(pl.col("book_format").is_in(["board_book", "cards", "paperback", "hardcover", "library_binding"]))
         .then(pl.col("book_format"))
-        .otherwise(pl.lit(None)).alias("book_format")
-
+        .otherwise(pl.lit(None))
+        .alias("book_format")
     )
     ).collect()
 
     merge2, unique_pubs = clean_publishers(merge2)
 
-    # Merge2 columns: ['isbn', 'title', 'publisher', 'publication_date', 'book_format', 'reading_age', 'language',
-    # 'print_length', 'item_weight', 'length', 'width', 'height', 'rating', 'number_of_reviews', 'price',
-    # 'best_sellers_rank', 'customer_reviews', 'author', 'description']
+    # Group the reading_age into five bins
+    unclean_ages = merge2.select("reading_age")["reading_age"]
+    _, pl_bins_reading_age_df = add_age_bins(unclean_ages)
+
+    useful_cols = ('isbn', 'title', 'publisher', 'publication_date', 'book_format', "reading_age",
+                   'print_length', 'item_weight', 'length', 'width', 'height', 'rating', 'number_of_reviews',
+                   'price', 'best_sellers_rank', 'customer_reviews')
+
+    merge2 = (
+        pl.concat(
+            [merge2.drop("reading_age"), pl_bins_reading_age_df],
+            how="horizontal"
+        ).select(useful_cols)
+    )
 
     with pl.Config() as cfg:
         cfg.set_tbl_cols(-1)
