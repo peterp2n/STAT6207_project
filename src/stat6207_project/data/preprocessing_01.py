@@ -28,7 +28,7 @@ if __name__ == "__main__":
             dup_results.append(result)
 
     df = ext.to_dataframe()
-    df.write_csv(html_folder / "amazon_cleaned.csv")
+    # df.write_csv(html_folder / "amazon_cleaned.csv")
 
     html_folder = Path("data")
     df = pl.scan_csv(html_folder / "amazon_cleaned.csv", schema_overrides={
