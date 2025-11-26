@@ -9,13 +9,21 @@ dependencies = [
     "aiohttp-socks>=0.10.2",
     "bs4>=0.0.2",
     "connectorx>=0.4.4",
+    "holidays>=0.85",
     "matplotlib>=3.10.7",
+    "notebook>=7.5.0",
     "pandas>=2.3.3",
     "pillow>=12.0.0",
     "polars>=1.35.1",
     "pyarrow>=22.0.0",
     "seaborn>=0.13.2",
     "selenium>=4.38.0",
+    "sentence-transformers>=5.1.2",
     "sqlalchemy>=2.0.44",
+    "torch>=2.9.1",
+    "torchvision>=0.24.1",
+    "transformers>=4.57.1",
     "webdriver-manager>=4.0.2",
 ]
+
+[tool.uv.sources]
