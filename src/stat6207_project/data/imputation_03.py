@@ -1,6 +1,8 @@
 import polars as pl
 import polars.selectors as cs
 from pathlib import Path
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
 
 def impute_book_cover(df_input: pl.DataFrame) -> pl.DataFrame:
 
@@ -147,13 +149,27 @@ if __name__ == "__main__":
     # merge4.write_csv(Path("data") / "merged4.csv")
 
     merge4_std = standardize_columns(merge4)
-#     merge4_std.write_csv(Path("data") / "merged4_std.csv")
+
+    # Select only numeric columns
+    numeric_cols = merge4_std.select(cs.numeric()).columns
+    X_numeric = merge4_std.select(numeric_cols)
+
+    # Apply IterativeImputer
+    imputer = IterativeImputer(random_state=42, max_iter=20)
+    X_imputed = imputer.fit_transform(X_numeric)
+
+    # Convert imputed array back to Polars DataFrame
+    X_imputed_df = pl.DataFrame(X_imputed, schema=numeric_cols)
+
+    # Replace original numeric columns with imputed values
+    merge4_std = merge4_std.with_columns(X_imputed_df)
+    # merge4_std.write_csv(Path("data") / "merged4_std.csv")
 
     merge4_std_dummy = merge4_std.to_dummies(
         columns=["book_format", "publisher", "reading_age"],
         drop_first=True
     )
-#     merge4_std_dummy.write_csv(Path("data") / "merged4_std_dummy.csv")
+    # merge4_std_dummy.write_csv(Path("data") / "merged4_std_dummy.csv")
 
 
     pass
