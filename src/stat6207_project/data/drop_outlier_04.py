@@ -123,6 +123,6 @@ if __name__ == "__main__":
         merge5_std_dummy
         .filter(outlier_labels == 1)
     )
-    merge5_std_dummy_drop.write_csv(data / "merged5_std_dummy_drop.csv", include_bom=True)
+    # merge5_std_dummy_drop.write_csv(data / "merged5_std_dummy_drop.csv", include_bom=True)
 
     pass
