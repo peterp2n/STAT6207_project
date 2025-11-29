@@ -57,46 +57,46 @@ if __name__ == "__main__":
     train_isbn, test_isbn = train_full.select("isbn"), test_full.select("isbn")
     X_train, X_test = train_full.drop("isbn"), test_full.drop("isbn")
 
-    # --- Pipeline ---
-    cat_cols = ["publisher", "book_format", "reading_age"]
-    num_cols = [c for c in X_train.columns if c not in cat_cols]
-
-    pipeline = Pipeline([
-        ('preprocessor', ColumnTransformer([
-            ('cat', Pipeline([
-                ('encoder', OrdinalEncoder(
-                    handle_unknown='use_encoded_value',
-                    unknown_value=np.nan,
-                    encoded_missing_value=np.nan
-                ))
-            ]), cat_cols),
-            ('num', 'passthrough', num_cols)
-        ], verbose_feature_names_out=False)),
-
-        # Smart Impute
-        ('imputer', IterativeImputer(max_iter=10, random_state=0, initial_strategy='most_frequent')),
-
-        # SAFETY NET: If IterativeImputer gives up (leaving NaNs), fill with Mode.
-        # This prevents the "NaN in decode" crash.
-        ('safety_net', SimpleImputer(strategy='most_frequent'))
-    ])
-
-    # --- Run ---
-    print("Running Imputation...")
-    X_train_imp = pipeline.fit_transform(X_train)
-    X_test_imp = pipeline.transform(X_test)
-
-    # --- Decode & Finalize ---
-    encoder = pipeline.named_steps['preprocessor'].named_transformers_['cat'].named_steps['encoder']
-
-    train_ready = train_isbn.hstack(decode_pl(X_train_imp, encoder, cat_cols))
-    test_ready = test_isbn.hstack(decode_pl(X_test_imp, encoder, cat_cols))
-
-    print(f"Final Train Shape: {train_ready.shape}")
-    print(f"Sample:\n{train_ready.head(1)}")
+    # # --- Pipeline ---
+    # cat_cols = ["publisher", "book_format", "reading_age"]
+    # num_cols = [c for c in X_train.columns if c not in cat_cols]
+    #
+    # pipeline = Pipeline([
+    #     ('preprocessor', ColumnTransformer([
+    #         ('cat', Pipeline([
+    #             ('encoder', OrdinalEncoder(
+    #                 handle_unknown='use_encoded_value',
+    #                 unknown_value=np.nan,
+    #                 encoded_missing_value=np.nan
+    #             ))
+    #         ]), cat_cols),
+    #         ('num', 'passthrough', num_cols)
+    #     ], verbose_feature_names_out=False)),
+    #
+    #     # Smart Impute
+    #     ('imputer', IterativeImputer(max_iter=10, random_state=0, initial_strategy='most_frequent')),
+    #
+    #     # SAFETY NET: If IterativeImputer gives up (leaving NaNs), fill with Mode.
+    #     # This prevents the "NaN in decode" crash.
+    #     ('safety_net', SimpleImputer(strategy='most_frequent'))
+    # ])
+    #
+    # # --- Run ---
+    # print("Running Imputation...")
+    # X_train_imp = pipeline.fit_transform(X_train)
+    # X_test_imp = pipeline.transform(X_test)
+    #
+    # # --- Decode & Finalize ---
+    # encoder = pipeline.named_steps['preprocessor'].named_transformers_['cat'].named_steps['encoder']
+    #
+    # train_ready = train_isbn.hstack(decode_pl(X_train_imp, encoder, cat_cols))
+    # test_ready = test_isbn.hstack(decode_pl(X_test_imp, encoder, cat_cols))
+    #
+    # print(f"Final Train Shape: {train_ready.shape}")
+    # print(f"Sample:\n{train_ready.head(1)}")
 
     mode_format = (
-        train_ready
+        X_train
         .group_by("publisher")
         .agg(
             pl.col("book_format").drop_nulls()
@@ -106,7 +106,7 @@ if __name__ == "__main__":
         )
     )
     mode_age = (
-        train_ready
+        X_train
         .group_by("publisher")
         .agg(
             pl.col("reading_age").drop_nulls()
@@ -115,15 +115,36 @@ if __name__ == "__main__":
             .alias("mode_reading_age")
         )
     )
+    global_mode_format = X_train["book_format"].drop_nulls().mode().first()
+    global_mode_age = X_train["reading_age"].drop_nulls().mode().first()
 
-    train_ready = train_ready.join(mode_age, on="publisher", how="left")
-    train_ready = train_ready.join(mode_format, on="publisher", how="left")
-    train_ready = (
-        train_ready
-        .with_columns(
-            pl.col("book_format").fill_null(pl.col("mode_book_format")),
-            pl.col("reading_age").fill_null(pl.col("mode_reading_age"))
-        )
+    X_train = X_train.join(mode_age, on="publisher", how="left")
+    X_train = X_train.join(mode_format, on="publisher", how="left")
+    X_train = (
+        X_train
+        .with_columns([
+            pl.col("book_format")
+            .fill_null(pl.col("mode_book_format"))  # Fill with Group Mode if exists
+            .fill_null(global_mode_format),
+            pl.col("reading_age")
+            .fill_null(pl.col("mode_reading_age"))  # Fill with Group Mode if
+            .fill_null(global_mode_age)
+        ])
+        .drop(["mode_book_format", "mode_reading_age"])
+    )
+
+    X_test = (
+        X_test
+        .join(mode_age, on="publisher", how="left")
+        .join(mode_format, on="publisher", how="left")
+        .with_columns([
+            pl.col("book_format")
+            .fill_null(pl.col("mode_book_format"))  # Fill with Group Mode if exists
+            .fill_null(global_mode_format),
+            pl.col("reading_age")
+            .fill_null(pl.col("mode_reading_age"))  # Fill with Group Mode if
+            .fill_null(global_mode_age)
+        ])
         .drop(["mode_book_format", "mode_reading_age"])
     )
 
