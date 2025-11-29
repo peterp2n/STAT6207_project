@@ -132,27 +132,6 @@ if __name__ == "__main__":
 
     merge3 = impute_book_format(merge3)
     merge3 = impute_reading_age(merge3)
-    # merge3.write_csv(Path("data") / "merged3.csv")
+    merge3.write_csv(Path("data") / "merged3.csv")
 
-    sales_data = (
-        pl.scan_csv(
-            "expand_quarterly_sales_retail.csv",
-            schema_overrides={
-                "barcode2": pl.Utf8,
-                "Quarter_num": pl.Enum(["1", "2", "3", "4"]),
-            }
-        )
-        .collect()
-    )
-
-    merge3_sales = (
-        merge3
-        .join(
-            sales_data,
-            left_on="isbn",
-            right_on="barcode2",
-            how="left"
-        )
-    )
-
-    # merge3_sales.write_csv(Path("data") / "merged3_sales.csv", include_bom=True)
+    pass
