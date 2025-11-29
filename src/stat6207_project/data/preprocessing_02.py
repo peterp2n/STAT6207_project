@@ -50,6 +50,7 @@ def clean_publishers(lf_input: pl.LazyFrame) -> tuple[pl.LazyFrame, list[str]]:
         "autumn": "autumn",
         "rh": "penguin_random_house",
         "creative teaching": "creative_teaching",
+        "creative_teaching": "creative_teaching",
         "edc pub": "edc_publishing",
         "national geographic": "national_geographic",
         "makebelieveideas": "make_believe_ideas",
@@ -92,10 +93,18 @@ def clean_publishers(lf_input: pl.LazyFrame) -> tuple[pl.LazyFrame, list[str]]:
         .group_by("publisher")
         .agg(pl.col("publisher").count().alias("book_count"))
         .sort("book_count", descending=True)
-            .filter(pl.col("book_count") >= 5)
     )
 
-    cleaned = cleaned.join(publisher_counts, on="publisher", how="inner")
+    cleaned = (
+        cleaned.join(publisher_counts, on="publisher", how="inner")
+        .with_columns([
+            pl.when(pl.col("book_count") < 5)
+            .then(pl.lit("others"))
+            .otherwise(pl.col("publisher"))
+            .alias("publisher")
+        ])
+
+    )
 
     # Get unique publishers as a Python list
     unique_publishers = (
