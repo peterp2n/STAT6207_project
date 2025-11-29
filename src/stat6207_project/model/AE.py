@@ -2,12 +2,6 @@ import polars as pl
 import numpy as np
 from pathlib import Path
 from sklearn.model_selection import train_test_split
-from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import IterativeImputer
-from sklearn.preprocessing import OrdinalEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
 from sklearn import set_config
 
 # 1. Magic Switch: Use Polars engine (Fixes the 'concatenate' crash too!)
@@ -120,45 +114,5 @@ if __name__ == "__main__":
 
     print("Imputation Complete")
     print(X_train.select(target_cols).null_count())
-
-    # # --- Pipeline ---
-    # cat_cols = ["publisher", "book_format", "reading_age"]
-    # num_cols = [c for c in X_train.columns if c not in cat_cols]
-    #
-    # pipeline = Pipeline([
-    #     ('preprocessor', ColumnTransformer([
-    #         ('cat', Pipeline([
-    #             ('encoder', OrdinalEncoder(
-    #                 handle_unknown='use_encoded_value',
-    #                 unknown_value=np.nan,
-    #                 encoded_missing_value=np.nan
-    #             ))
-    #         ]), cat_cols),
-    #         ('num', 'passthrough', num_cols)
-    #     ], verbose_feature_names_out=False)),
-    #
-    #     # Smart Impute
-    #     ('imputer', IterativeImputer(max_iter=10, random_state=0, initial_strategy='most_frequent')),
-    #
-    #     # SAFETY NET: If IterativeImputer gives up (leaving NaNs), fill with Mode.
-    #     # This prevents the "NaN in decode" crash.
-    #     ('safety_net', SimpleImputer(strategy='most_frequent'))
-    # ])
-    #
-    # # --- Run ---
-    # print("Running Imputation...")
-    # X_train_imp = pipeline.fit_transform(X_train)
-    # X_test_imp = pipeline.transform(X_test)
-    #
-    # # --- Decode & Finalize ---
-    # encoder = pipeline.named_steps['preprocessor'].named_transformers_['cat'].named_steps['encoder']
-    #
-    # train_ready = train_isbn.hstack(decode_pl(X_train_imp, encoder, cat_cols))
-    # test_ready = test_isbn.hstack(decode_pl(X_test_imp, encoder, cat_cols))
-    #
-    # print(f"Final Train Shape: {train_ready.shape}")
-    # print(f"Sample:\n{train_ready.head(1)}")
-
-
 
     pass
