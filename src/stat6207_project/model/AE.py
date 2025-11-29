@@ -42,6 +42,8 @@ def decode_pl(df, enc, cols):
     return df.with_columns(decoded_series)
 
 
+
+
 if __name__ == "__main__":
     # --- Load & Prep ---
     data_folder = Path("data")
@@ -92,5 +94,37 @@ if __name__ == "__main__":
 
     print(f"Final Train Shape: {train_ready.shape}")
     print(f"Sample:\n{train_ready.head(1)}")
+
+    mode_format = (
+        train_ready
+        .group_by("publisher")
+        .agg(
+            pl.col("book_format").drop_nulls()
+            .mode()
+            .first()
+            .alias("mode_book_format")
+        )
+    )
+    mode_age = (
+        train_ready
+        .group_by("publisher")
+        .agg(
+            pl.col("reading_age").drop_nulls()
+            .mode()
+            .first()
+            .alias("mode_reading_age")
+        )
+    )
+
+    train_ready = train_ready.join(mode_age, on="publisher", how="left")
+    train_ready = train_ready.join(mode_format, on="publisher", how="left")
+    train_ready = (
+        train_ready
+        .with_columns(
+            pl.col("book_format").fill_null(pl.col("mode_book_format")),
+            pl.col("reading_age").fill_null(pl.col("mode_reading_age"))
+        )
+        .drop(["mode_book_format", "mode_reading_age"])
+    )
 
     pass
