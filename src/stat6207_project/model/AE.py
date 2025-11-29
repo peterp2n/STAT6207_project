@@ -42,6 +42,58 @@ def decode_pl(df, enc, cols):
     return df.with_columns(decoded_series)
 
 
+def impute_by_group_mode(train_df, test_df, group_col, target_cols):
+    """
+    Imputes missing values in target_cols using the mode of the group_col.
+    Fits on train_df, transforms both train_df and test_df.
+
+    Strategy:
+    1. Try filling with the Mode of the specific group (e.g., Publisher).
+    2. If Group Mode is missing (unknown group or group has no data), fill with Global Mode from train set.
+    """
+
+    # --- 1. Fit (Calculate Statistics on Train) ---
+
+    # A. Global Modes (Fallback)
+    # resulting dict: {'book_format': 'Hardcover', 'reading_age': '8-12'}
+    global_modes = {
+        col: train_df[col].drop_nulls().mode().first()
+        for col in target_cols
+    }
+
+    # B. Group Modes
+    # We build one agg expression per target column to do this in a single groupby
+    agg_exprs = [
+        pl.col(col).drop_nulls().mode().first().alias(f"mode_{col}")
+        for col in target_cols
+    ]
+
+    group_modes_df = (
+        train_df
+        .group_by(group_col)
+        .agg(agg_exprs)
+    )
+
+    # --- 2. Transform (Apply to Dataframes) ---
+
+    def apply_imputation(df):
+        # Join the group modes once
+        df_joined = df.join(group_modes_df, on=group_col, how="left")
+
+        # Define fill expressions for all columns
+        fill_exprs = []
+        for col in target_cols:
+            fill_exprs.append(
+                pl.col(col)
+                .fill_null(pl.col(f"mode_{col}"))  # Priority 1: Group Mode
+                .fill_null(global_modes[col])  # Priority 2: Global Mode
+            )
+
+        # Apply fills and drop the temp mode columns
+        return df_joined.with_columns(fill_exprs).drop([f"mode_{c}" for c in target_cols])
+
+    # Apply to both
+    return apply_imputation(train_df), apply_imputation(test_df)
 
 
 if __name__ == "__main__":
@@ -56,6 +108,18 @@ if __name__ == "__main__":
     # Separate ISBN (Leakage Prevention)
     train_isbn, test_isbn = train_full.select("isbn"), test_full.select("isbn")
     X_train, X_test = train_full.drop("isbn"), test_full.drop("isbn")
+
+    target_cols = ["book_format", "reading_age"]
+
+    X_train, X_test = impute_by_group_mode(
+        train_df=X_train,
+        test_df=X_test,
+        group_col="publisher",
+        target_cols=target_cols
+    )
+
+    print("Imputation Complete")
+    print(X_train.select(target_cols).null_count())
 
     # # --- Pipeline ---
     # cat_cols = ["publisher", "book_format", "reading_age"]
@@ -95,57 +159,6 @@ if __name__ == "__main__":
     # print(f"Final Train Shape: {train_ready.shape}")
     # print(f"Sample:\n{train_ready.head(1)}")
 
-    mode_format = (
-        X_train
-        .group_by("publisher")
-        .agg(
-            pl.col("book_format").drop_nulls()
-            .mode()
-            .first()
-            .alias("mode_book_format")
-        )
-    )
-    mode_age = (
-        X_train
-        .group_by("publisher")
-        .agg(
-            pl.col("reading_age").drop_nulls()
-            .mode()
-            .first()
-            .alias("mode_reading_age")
-        )
-    )
-    global_mode_format = X_train["book_format"].drop_nulls().mode().first()
-    global_mode_age = X_train["reading_age"].drop_nulls().mode().first()
 
-    X_train = X_train.join(mode_age, on="publisher", how="left")
-    X_train = X_train.join(mode_format, on="publisher", how="left")
-    X_train = (
-        X_train
-        .with_columns([
-            pl.col("book_format")
-            .fill_null(pl.col("mode_book_format"))  # Fill with Group Mode if exists
-            .fill_null(global_mode_format),
-            pl.col("reading_age")
-            .fill_null(pl.col("mode_reading_age"))  # Fill with Group Mode if
-            .fill_null(global_mode_age)
-        ])
-        .drop(["mode_book_format", "mode_reading_age"])
-    )
-
-    X_test = (
-        X_test
-        .join(mode_age, on="publisher", how="left")
-        .join(mode_format, on="publisher", how="left")
-        .with_columns([
-            pl.col("book_format")
-            .fill_null(pl.col("mode_book_format"))  # Fill with Group Mode if exists
-            .fill_null(global_mode_format),
-            pl.col("reading_age")
-            .fill_null(pl.col("mode_reading_age"))  # Fill with Group Mode if
-            .fill_null(global_mode_age)
-        ])
-        .drop(["mode_book_format", "mode_reading_age"])
-    )
 
     pass
