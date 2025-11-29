@@ -4,7 +4,7 @@ from pathlib import Path
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 
-def impute_book_cover(df_input: pl.DataFrame) -> pl.DataFrame:
+def impute_book_format(df_input: pl.DataFrame) -> pl.DataFrame:
 
     empty_reading_age = df_input.select("reading_age")["reading_age"].is_null()
 
@@ -131,45 +131,30 @@ if __name__ == "__main__":
             pl.col("isbn").cast(pl.Utf8)
         )
     )
+
+    merge3 = impute_book_format(merge3)
+    merge3 = impute_reading_age(merge3)
     # merge3.write_csv(Path("data") / "merged3.csv")
 
-    # Standardize numeric columns
-    merge3_std = standardize_columns(merge3)
-    # merge3_std.write_csv(Path("data") / "merged3_std.csv")
-
-    # Standardized with dummies
-    merge3_std_dummy = merge3_std.to_dummies(
-        columns=["book_format", "publisher", "reading_age"],
-        drop_first=True
+    sales_data = (
+        pl.scan_csv(
+            "expand_quarterly_sales_retail.csv",
+            schema_overrides={
+                "barcode2": pl.Utf8,
+                "Quarter_num": pl.Enum(["1", "2", "3", "4"]),
+            }
+        )
+        .collect()
     )
-    # merge3_std_dummy.write_csv(Path("data") / "merged3_std_dummy.csv")
 
-    merge4 = impute_book_cover(merge3)
-    merge4 = impute_reading_age(merge4)
-    # merge4.write_csv(Path("data") / "merged4.csv")
-
-    merge4_std = standardize_columns(merge4)
-
-    # Select only numeric columns
-    numeric_cols = merge4_std.select(cs.numeric()).columns
-    X_numeric = merge4_std.select(numeric_cols)
-
-    # Apply IterativeImputer
-    imputer = IterativeImputer(random_state=42, max_iter=20)
-    X_imputed = imputer.fit_transform(X_numeric)
-
-    # Convert imputed array back to Polars DataFrame
-    X_imputed_df = pl.DataFrame(X_imputed, schema=numeric_cols)
-
-    # Replace original numeric columns with imputed values
-    merge4_std = merge4_std.with_columns(X_imputed_df)
-    # merge4_std.write_csv(Path("data") / "merged4_std.csv")
-
-    merge4_std_dummy = merge4_std.to_dummies(
-        columns=["book_format", "publisher", "reading_age"],
-        drop_first=True
+    merge3_sales = (
+        merge3
+        .join(
+            sales_data,
+            left_on="isbn",
+            right_on="barcode2",
+            how="left"
+        )
     )
-    # merge4_std_dummy.write_csv(Path("data") / "merged4_std_dummy.csv")
 
-
-    pass
+    # merge3_sales.write_csv(Path("data") / "merged3_sales.csv", include_bom=True)
