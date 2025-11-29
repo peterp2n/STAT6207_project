@@ -193,7 +193,9 @@ if __name__ == "__main__":
         pl.concat(
             [merge2.drop("reading_age"), pl_bins_reading_age_df],
             how="horizontal"
-        ).select(useful_cols)
+        )
+        .select(useful_cols)
+        .unique(subset=["isbn"], keep="first")
     )
 
     with pl.Config() as cfg:
