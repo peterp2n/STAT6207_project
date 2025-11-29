@@ -38,58 +38,103 @@ def decode_pl(df, enc, cols):
     return df.with_columns(decoded_series)
 
 
-def impute_by_group_mode(train_df, test_df, group_col, target_cols):
+def impute_by_group(
+        train_df: pl.DataFrame,
+        test_df: pl.DataFrame,
+        group_col: str,
+        target_cols: list[str],
+        strategy: str
+) -> tuple[pl.DataFrame, pl.DataFrame]:
     """
-    Imputes missing values in target_cols using the mode of the group_col.
-    Fits on train_df, transforms both train_df and test_df.
+    Imputes missing values in target_cols using the chosen statistic (mode/median/mean)
+    calculated within each group defined by group_col.
 
-    Strategy:
-    1. Try filling with the Mode of the specific group (e.g., Publisher).
-    2. If Group Mode is missing (unknown group or group has no data), fill with Global Mode from train set.
+    Fits on train_df and transforms both train_df and test_df.
+
+    Fallback order:
+      1. Group-level statistic (mode/median/mean)
+      2. Global statistic from the training set
+
+    Parameters
+    ----------
+    train_df, test_df : pl.DataFrame
+        Input dataframes (test_df may contain unseen groups).
+    group_col : str
+        Column name used for grouping.
+    target_cols : list[str]
+        Columns containing missing values to impute.
+    strategy : {"mode", "median", "mean"}
+        Statistic to use for imputation.
+
+    Returns
+    -------
+    tuple[pl.DataFrame, pl.DataFrame]
+        Imputed train_df and test_df.
     """
+    strategy = strategy.lower()
+    if strategy not in {"mode", "median", "mean"}:
+        raise ValueError("strategy must be one of 'mode', 'median', or 'mean'")
 
-    # --- 1. Fit (Calculate Statistics on Train) ---
+    # --- 1. Fit: Compute global and group-level statistics on train_df ---
 
-    # A. Global Modes (Fallback)
-    # resulting dict: {'book_format': 'Hardcover', 'reading_age': '8-12'}
-    global_modes = {
-        col: train_df[col].drop_nulls().mode().first()
-        for col in target_cols
-    }
+    # Global statistics (fallback)
+    if strategy == "mode":
+        global_stats = {
+            col: train_df[col].drop_nulls().mode().first()
+            for col in target_cols
+        }
+    elif strategy == "median":
+        global_stats = {
+            col: train_df[col].drop_nulls().median()
+            for col in target_cols
+        }
+    else:  # mean
+        global_stats = {
+            col: train_df[col].drop_nulls().mean()
+            for col in target_cols
+        }
 
-    # B. Group Modes
-    # We build one agg expression per target column to do this in a single groupby
-    agg_exprs = [
-        pl.col(col).drop_nulls().mode().first().alias(f"mode_{col}")
-        for col in target_cols
-    ]
+    # Group-level statistics
+    agg_exprs = []
+    for col in target_cols:
+        base = pl.col(col).drop_nulls()
+        if strategy == "mode":
+            expr = base.mode().first().alias(f"{strategy}_{col}")
+        elif strategy == "median":
+            expr = base.median().alias(f"{strategy}_{col}")
+        else:  # mean
+            expr = base.mean().alias(f"{strategy}_{col}")
+        agg_exprs.append(expr)
 
-    group_modes_df = (
+    group_stats_df = (
         train_df
         .group_by(group_col)
         .agg(agg_exprs)
     )
 
-    # --- 2. Transform (Apply to Dataframes) ---
+    # --- 2. Transform: Apply imputation to any dataframe ---
+    def apply_imputation(df: pl.DataFrame) -> pl.DataFrame:
+        # Left join group statistics
+        df_joined = df.join(group_stats_df, on=group_col, how="left")
 
-    def apply_imputation(df):
-        # Join the group modes once
-        df_joined = df.join(group_modes_df, on=group_col, how="left")
-
-        # Define fill expressions for all columns
+        # Build sequential fill expressions
         fill_exprs = []
         for col in target_cols:
-            fill_exprs.append(
-                pl.col(col)
-                .fill_null(pl.col(f"mode_{col}"))  # Priority 1: Group Mode
-                .fill_null(global_modes[col])  # Priority 2: Global Mode
-            )
+            group_col_name = f"{strategy}_{col}"
+            expr = pl.col(col).fill_null(pl.col(group_col_name))  # Group statistic
+            expr = expr.fill_null(global_stats[col])  # Global fallback
+            fill_exprs.append(expr)
 
-        # Apply fills and drop the temp mode columns
-        return df_joined.with_columns(fill_exprs).drop([f"mode_{c}" for c in target_cols])
+        # Apply and clean up temporary columns
+        result = df_joined.with_columns(fill_exprs)
+        temp_cols = [f"{strategy}_{c}" for c in target_cols]
+        return result.drop(temp_cols)
 
-    # Apply to both
-    return apply_imputation(train_df), apply_imputation(test_df)
+    # Apply to both datasets
+    train_imputed = apply_imputation(train_df)
+    test_imputed = apply_imputation(test_df)
+
+    return train_imputed, test_imputed
 
 
 if __name__ == "__main__":
@@ -105,22 +150,30 @@ if __name__ == "__main__":
     train_isbn, test_isbn = train_full.select("isbn"), test_full.select("isbn")
     X_train, X_test = train_full.drop("isbn"), test_full.drop("isbn")
 
-    target_cols = ["book_format", "reading_age"]
-
-    X_train, X_test = impute_by_group_mode(
+    # Impute categorical book_format and reading_age by mode group by publisher
+    X_train, X_test = impute_by_group(
         train_df=X_train,
         test_df=X_test,
         group_col="publisher",
-        target_cols=target_cols
+        target_cols=["book_format", "reading_age"],
+        strategy="mode"
     )
 
-    print("Imputation Complete")
-    print(X_train.select(target_cols).null_count())
+    # Impute the numeric columns by median group by publisher (before scaling)
+    X_train, X_test = impute_by_group(
+        train_df=X_train,
+        test_df=X_test,
+        group_col="publisher",
+        target_cols=[
+            "print_length", "item_weight", "length", "width", "height", "rating",
+            "number_of_reviews", "price", "best_sellers_rank", "customer_reviews"
+        ],
+        strategy="median"
+    )
 
+    # Standardize the numeric columns (now on imputed data)
     numeric_cols = X_train.select(cs.numeric()).columns
-
     scaler = StandardScaler()
-
     # Fit and transform in one step, then replace directly
     X_train = X_train.with_columns(
         scaler.fit_transform(X_train.select(numeric_cols))
