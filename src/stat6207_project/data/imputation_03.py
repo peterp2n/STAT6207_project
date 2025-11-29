@@ -1,8 +1,6 @@
 import polars as pl
 import polars.selectors as cs
 from pathlib import Path
-from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import IterativeImputer
 
 def impute_book_format(df_input: pl.DataFrame) -> pl.DataFrame:
 
