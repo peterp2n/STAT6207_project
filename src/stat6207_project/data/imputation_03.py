@@ -135,14 +135,14 @@ if __name__ == "__main__":
 
     # Standardize numeric columns
     merge3_std = standardize_columns(merge3)
-#     merge3_std.write_csv(Path("data") / "merged3_std.csv")
+    # merge3_std.write_csv(Path("data") / "merged3_std.csv")
 
     # Standardized with dummies
     merge3_std_dummy = merge3_std.to_dummies(
         columns=["book_format", "publisher", "reading_age"],
         drop_first=True
     )
-#     merge3_std_dummy.write_csv(Path("data") / "merged3_std_dummy.csv")
+    # merge3_std_dummy.write_csv(Path("data") / "merged3_std_dummy.csv")
 
     merge4 = impute_book_cover(merge3)
     merge4 = impute_reading_age(merge4)
