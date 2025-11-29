@@ -171,18 +171,18 @@ if __name__ == "__main__":
         strategy="median"
     )
 
-    # Standardize the numeric columns (now on imputed data)
-    numeric_cols = X_train.select(cs.numeric()).columns
-    scaler = StandardScaler()
+    # Standardize the numeric columns (now on imputed data)`
+    numeric_cols_books = X_train.select(cs.numeric()).columns
+    scaler_books = StandardScaler()
     # Fit and transform in one step, then replace directly
     X_train = X_train.with_columns(
-        scaler.fit_transform(X_train.select(numeric_cols))
-        .rename(dict(zip(scaler.feature_names_in_, numeric_cols)))  # safe name restore
+        scaler_books.fit_transform(X_train.select(numeric_cols_books))
+        .rename(dict(zip(scaler_books.feature_names_in_, numeric_cols_books)))  # safe name restore
     )
 
     X_test = X_test.with_columns(
-        scaler.transform(X_test.select(numeric_cols))
-        .rename(dict(zip(scaler.feature_names_in_, numeric_cols)))
+        scaler_books.transform(X_test.select(numeric_cols_books))
+        .rename(dict(zip(scaler_books.feature_names_in_, numeric_cols_books)))
     )
 
     pass
