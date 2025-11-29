@@ -132,6 +132,6 @@ if __name__ == "__main__":
 
     merge3 = impute_book_format(merge3)
     merge3 = impute_reading_age(merge3)
-    merge3.write_csv(Path("data") / "merged3.csv")
+    # merge3.write_csv(Path("data") / "merged3.csv")
 
     pass
