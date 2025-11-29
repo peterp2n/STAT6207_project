@@ -1,7 +1,9 @@
 import polars as pl
+import polars.selectors as cs
 import numpy as np
 from pathlib import Path
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 from sklearn import set_config
 
 # 1. Magic Switch: Use Polars engine (Fixes the 'concatenate' crash too!)
@@ -114,5 +116,20 @@ if __name__ == "__main__":
 
     print("Imputation Complete")
     print(X_train.select(target_cols).null_count())
+
+    numeric_cols = X_train.select(cs.numeric()).columns
+
+    scaler = StandardScaler()
+
+    # Fit and transform in one step, then replace directly
+    X_train = X_train.with_columns(
+        scaler.fit_transform(X_train.select(numeric_cols))
+        .rename(dict(zip(scaler.feature_names_in_, numeric_cols)))  # safe name restore
+    )
+
+    X_test = X_test.with_columns(
+        scaler.transform(X_test.select(numeric_cols))
+        .rename(dict(zip(scaler.feature_names_in_, numeric_cols)))
+    )
 
     pass
