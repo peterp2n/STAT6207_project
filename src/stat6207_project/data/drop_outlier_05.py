@@ -13,7 +13,7 @@ plt.style.use("seaborn-v0_8-whitegrid")
 
 def plot_outlier_comparison_matplotlib(
         X_full: np.ndarray,
-        outlier_mask: np.ndarray,
+        inlier_mask: np.ndarray,
         X_clean: np.ndarray,
         *,
         perplexity: int = 40,
@@ -24,13 +24,13 @@ def plot_outlier_comparison_matplotlib(
         save_path: str | None = "tsne_outlier_removal.png",
 ) -> None:
     # Force boolean mask
-    if outlier_mask.dtype != bool:
-        is_outlier = outlier_mask == -1
+    if inlier_mask.dtype != bool:
+        is_inlier = inlier_mask == 1
     else:
-        is_outlier = outlier_mask
+        is_inlier = inlier_mask
 
     n_total = len(X_full)
-    n_outliers = int(is_outlier.sum())
+    n_outliers = int((~is_inlier).sum())
     n_clean = len(X_clean)
 
     # CRITICAL FIX: Force NumPy arrays — this stops Polars interference forever
@@ -58,9 +58,9 @@ def plot_outlier_comparison_matplotlib(
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize, constrained_layout=True)
 
     # Before
-    ax1.scatter(X_tsne_full[~is_outlier, 0], X_tsne_full[~is_outlier, 1],
+    ax1.scatter(X_tsne_full[is_inlier, 0], X_tsne_full[is_inlier, 1],
                 c="steelblue", s=marker_size, alpha=0.8, label="Inliers")
-    ax1.scatter(X_tsne_full[is_outlier, 0], X_tsne_full[is_outlier, 1],
+    ax1.scatter(X_tsne_full[~is_inlier, 0], X_tsne_full[~is_inlier, 1],
                 c="crimson", s=outlier_marker_size, edgecolor="black", linewidth=0.8,
                 label="Outliers", alpha=0.9)
     ax1.set_title(f"Before (n={n_total:,}, {n_outliers:,} outliers)")
@@ -83,22 +83,6 @@ def plot_outlier_comparison_matplotlib(
     plt.show()
 
     print(f"Removed {n_outliers:,} outliers ({n_outliers / n_total:.2%})")
-
-
-def get_cleaned_dataframes(df_original: pl.DataFrame, inlier_mask: np.ndarray) -> pl.DataFrame:
-    """
-    Returns the cleaned version of the original DataFrame with outliers removed.
-
-    Args:
-        df_original (pl.DataFrame): The original DataFrame before outlier removal.
-        inlier_mask (np.ndarray): Boolean array where True indicates inliers.
-
-    Returns:
-        pl.DataFrame: Cleaned DataFrame with only inliers.
-    """
-    if len(inlier_mask) != len(df_original):
-        raise ValueError("Inlier mask length must match the DataFrame length.")
-    return df_original.filter(pl.Series(inlier_mask))
 
 
 def get_cleaned_dataframes(df_original: pl.DataFrame, inlier_mask: np.ndarray) -> pl.DataFrame:
@@ -173,7 +157,7 @@ if __name__ == "__main__":
     # --------------------------- Visualization ------------------------------
     plot_outlier_comparison_matplotlib(
         X_full=X_train_np,
-        outlier_mask=labels == -1,
+        inlier_mask=inlier_mask,
         X_clean=X_train_np[inlier_mask],
         perplexity=40,
         save_path="tsne_outlier_removal_before_after.png",
