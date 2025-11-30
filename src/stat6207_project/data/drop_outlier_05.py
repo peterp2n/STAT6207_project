@@ -1,3 +1,4 @@
+from pathlib import Path
 import polars as pl
 import numpy as np
 import matplotlib.pyplot as plt
@@ -119,13 +120,21 @@ if __name__ == "__main__":
         "Current_quarter", "First_day", "Avg_discount",
     ]
 
+    target_col = "Next_Q1_log1p"
+
     # --------------------------- Preprocess --------------------------------
     X_train, X_test, _, _ = preprocess_data(books_df=df_books, sales_df=df_sales, test_size=0.2, random_state=42, shuffle=True)
+    y_train, y_test = X_train.select(["isbn", target_col]), X_test.select(["isbn", target_col])
+
 
     # Keep only the features we will actually train on
-    feats = [c for c in X_train.columns if c != "Next_Q1_log1p" and c not in unwanted_cols]
-    X_np = X_train.select(feats).to_numpy().astype(np.float32)
-    print(f"Feature matrix shape: {X_np.shape}")
+    feats = [c for c in X_train.columns if c != target_col and c not in unwanted_cols]
+    X_train_np = X_train.select(feats).to_numpy().astype(np.float32)
+    y_train_np = y_train.select(target_col).to_numpy().astype(np.float32)
+    X_test_np = X_test.select(feats).to_numpy().astype(np.float32)
+    y_test_np = y_test.select(target_col).to_numpy().astype(np.float32)
+
+    print(f"Feature matrix shape: {X_train_np.shape}")
 
     # --------------------------- t-SNE + DBSCAN ----------------------------
     tsne = TSNE(
@@ -136,7 +145,7 @@ if __name__ == "__main__":
         random_state=42,
         n_jobs=-1,
     )
-    X_2d = tsne.fit_transform(X_np)
+    X_2d = tsne.fit_transform(X_train_np)
 
     db = DBSCAN(eps=3.0, min_samples=10)  # you can tune eps later
     labels = db.fit_predict(X_2d)  # -1 = outlier
@@ -146,9 +155,9 @@ if __name__ == "__main__":
 
     # --------------------------- Visualization ------------------------------
     plot_outlier_comparison_matplotlib(
-        X_full=X_np,
+        X_full=X_train_np,
         outlier_mask=labels == -1,  # True where outlier
-        X_clean=X_np[inlier_mask],
+        X_clean=X_train_np[inlier_mask],
         perplexity=40,
         save_path="tsne_outlier_removal_before_after.png",
     )
@@ -162,9 +171,22 @@ if __name__ == "__main__":
     # --------------------------- Convert to PyTorch tensors ----------------
     X_tensor, y_tensor, _ = to_tensors(
         df=X_train_clean,
-        target_col="Next_Q1_log1p",
+        target_col=target_col,
         drop_cols=unwanted_cols,
     )
+
+    X_numpy = X_tensor.numpy()
+    y_numpy = y_tensor.numpy()
+
+    np.save(Path("data") / "X_train.npy", X_numpy)
+    get_cleaned_dataframes(X_train, inlier_mask).write_csv(Path("data") / "X_train.csv", include_bom=True)
+    np.save(Path("data") / "y_train.npy", y_numpy)
+    get_cleaned_dataframes(y_train, inlier_mask).write_csv(Path("data") / "y_train.csv", include_bom=True)
+    np.save(Path("data") / "X_test.npy", X_test_np)
+    X_test.write_csv(Path("data") / "X_test.csv", include_bom=True)
+    np.save(Path("data") / "y_test.npy", y_test_np)
+    y_test.write_csv(Path("data") / "y_test.csv", include_bom=True)
+
 
     print("\nReady for training!")
     print(f"   X_tensor shape : {X_tensor.shape}")
