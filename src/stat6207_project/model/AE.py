@@ -270,8 +270,14 @@ if __name__ == "__main__":
     train_sales = train_isbns.join(train_sales, on="isbn", how="left")
     test_sales = test_isbns.join(test_sales, on="isbn", how="left")
 
-    # X_train_full = train_isbns.hstack(X_train)
-    # X_test_full = test_isbns.hstack(X_test)
+    X_train_full = (
+        train_books
+        .join(train_sales, on="isbn", how="left")
+    )
+    X_test_full = (
+        test_books
+        .join(test_sales, on="isbn", how="left")
+    )
 
     # sns.histplot(data=train_sales.to_pandas(), x="Next_Q4_log1p", bins=50, kde=True)
     # plt.show()
