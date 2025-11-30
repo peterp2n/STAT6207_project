@@ -5,9 +5,39 @@ from pathlib import Path
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn import set_config
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # 1. Magic Switch: Use Polars engine (Fixes the 'concatenate' crash too!)
 set_config(transform_output="polars")
+
+
+def decode_pl(df, enc, cols):
+    # 1. Extract the imputed float values
+    vals = df.select(cols).to_numpy()
+
+    decoded_series = []
+    for i, col_name in enumerate(cols):
+        # Access the category list for this specific column
+        cats = enc.categories_[i]
+        max_idx = len(cats) - 1
+
+        # 2. Round, Fill, and Clip
+        # This ensures every single value is a valid integer index (0 to N)
+        col_idx = vals[:, i]
+        col_idx = np.round(col_idx)
+        col_idx = np.nan_to_num(col_idx, nan=0)  # Fallback to category 0 if NaN remains
+        col_idx = np.clip(col_idx, 0, max_idx).astype(int)
+
+        # 3. Direct Lookup (Manual Inverse Transform)
+        # We use numpy indexing to pull the strings directly.
+        # This cannot produce NaNs unless the category list itself contains them.
+        predicted_strings = cats[col_idx]
+
+        decoded_series.append(pl.Series(col_name, predicted_strings))
+
+    # 4. Return dataframe with the float columns replaced by string columns
+    return df.with_columns(decoded_series)
 
 
 def impute_by_group(
@@ -144,49 +174,49 @@ if __name__ == "__main__":
     )
 
     # ==================== LOG1P + BEST_SELLERS_RANK FIX ====================
-    log1p_cols = [
+    log1p_cols_books = [
         "item_weight", "length", "width", "height",
         "number_of_reviews", "customer_reviews", "price"
     ]
-    for col in log1p_cols:
+    for col in log1p_cols_books:
         X_train = X_train.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
-        X_test  = X_test.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
+        X_test = X_test.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
 
     # Invert + log best_sellers_rank
     X_train = X_train.with_columns(
-        (1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_score_log1p")
+        (1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_inv_log1p")
     )
     X_test = X_test.with_columns(
-        (1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_score_log1p")
+        (1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_inv_log1p")
     )
 
     # ==================== FINAL SCALING ====================
-    final_numeric_cols = [
-        "print_length",           # no log
-        "rating",                 # no log
+    final_numeric_cols_books = [
+        "print_length",  # no log
+        "rating",  # no log
         "item_weight_log1p", "length_log1p", "width_log1p", "height_log1p",
         "number_of_reviews_log1p", "customer_reviews_log1p",
         "price_log1p",
-        "bsr_score_log1p"
+        "bsr_inv_log1p"
     ]
 
     scaler_books = StandardScaler()
     X_train = X_train.with_columns(
-        scaler_books.fit_transform(X_train.select(final_numeric_cols))
-        .rename(dict(zip(scaler_books.feature_names_in_, final_numeric_cols)))
+        scaler_books.fit_transform(X_train.select(final_numeric_cols_books))
+        .rename(dict(zip(scaler_books.feature_names_in_, final_numeric_cols_books)))
     )
     X_test = X_test.with_columns(
-        scaler_books.transform(X_test.select(final_numeric_cols))
-        .rename(dict(zip(scaler_books.feature_names_in_, final_numeric_cols)))
+        scaler_books.transform(X_test.select(final_numeric_cols_books))
+        .rename(dict(zip(scaler_books.feature_names_in_, final_numeric_cols_books)))
     )
 
     # Re-attach ISBNs
     X_train = train_isbns.hstack(X_train)
-    X_test  = test_isbns.hstack(X_test)
+    X_test = test_isbns.hstack(X_test)
 
     print("merged3 preprocessing complete with proper log1p!")
     print(f"Train shape: {X_train.shape}, Test shape: {X_test.shape}")
-    print("Final scaled columns:", final_numeric_cols)
+    print("Final scaled columns:", final_numeric_cols_books)
 
     sales_data = (
         pl.read_csv(
@@ -204,13 +234,6 @@ if __name__ == "__main__":
     train_sales = sales_data.filter(pl.col("isbn").is_in(train_isbns["isbn"]))
     test_sales = sales_data.filter(pl.col("isbn").is_in(test_isbns["isbn"]))
 
-    # --- 2. Join book features (already clean & scaled) to sales records ---
-    train_sales = train_isbns.join(train_sales, on="isbn", how="left")
-    test_sales = test_isbns.join(test_sales, on="isbn", how="left")
-
-    # X_train_full = train_isbns.hstack(X_train)
-    # X_test_full = test_isbns.hstack(X_test)
-
     train_sales = (
         train_sales
         .with_columns([
@@ -219,22 +242,65 @@ if __name__ == "__main__":
             .fill_nan(0.0)
             .fill_null(0.0)
             .clip(lower_bound=0.0)
-            .alias("Avg_discount")
+            .alias("Avg_discount_cleaned"),
+            pl.col("Next_Q1").fill_null(0.0).alias("Next_Q1"),
+            pl.col("Next_Q2").fill_null(0.0).alias("Next_Q2"),
+            pl.col("Next_Q3").fill_null(0.0).alias("Next_Q3"),
+            pl.col("Next_Q4").fill_null(0.0).alias("Next_Q4")
         ])
     )
 
-    numeric_cols_sales = sales_data.select(cs.numeric()).columns
+    test_sales = (
+        test_sales
+        .with_columns([
+            pl.col("Avg_discount")
+            .replace({float("-inf"): 0.0, float("inf"): 0.0})
+            .fill_nan(0.0)
+            .fill_null(0.0)
+            .clip(lower_bound=0.0)
+            .alias("Avg_discount_cleaned"),
+            pl.col("Next_Q1").fill_null(0.0).alias("Next_Q1"),
+            pl.col("Next_Q2").fill_null(0.0).alias("Next_Q2"),
+            pl.col("Next_Q3").fill_null(0.0).alias("Next_Q3"),
+            pl.col("Next_Q4").fill_null(0.0).alias("Next_Q4")
+        ])
+    )
+
+    log1p_cols_sales = ['Previous_quarter_qty', 'Current_quarter_qty', 'Avg_discount_cleaned', 'Next_Q1', 'Next_Q2',
+                        'Next_Q3', 'Next_Q4']
+
+    for col in log1p_cols_sales:
+        train_sales = train_sales.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
+        test_sales = test_sales.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
+
+    final_numeric_cols_sales = [
+        'Previous_quarter_qty_log1p',
+        'Current_quarter_qty_log1p',
+        'Avg_discount_cleaned_log1p',
+        'Next_Q1_log1p',
+        'Next_Q2_log1p',
+        'Next_Q3_log1p',
+        'Next_Q4_log1p'
+    ]
+
     scaler_sales = StandardScaler()
     # Fit and transform in one step, then replace directly
     train_sales = train_sales.with_columns(
-        scaler_sales.fit_transform(train_sales.select(numeric_cols_sales))
-        .rename(dict(zip(scaler_sales.feature_names_in_, numeric_cols_sales)))  # safe name restore
+        scaler_sales.fit_transform(train_sales.select(final_numeric_cols_sales))
+        .rename(dict(zip(scaler_sales.feature_names_in_, final_numeric_cols_sales)))  # safe name restore
     )
     test_sales = test_sales.with_columns(
-        scaler_sales.transform(test_sales.select(numeric_cols_sales))
-        .rename(dict(zip(scaler_sales.feature_names_in_, numeric_cols_sales)))
+        scaler_sales.transform(test_sales.select(final_numeric_cols_sales))
+        .rename(dict(zip(scaler_sales.feature_names_in_, final_numeric_cols_sales)))
     )
 
+    # --- 2. Join book features (already clean & scaled) to sales records ---
+    train_sales = train_isbns.join(train_sales, on="isbn", how="left")
+    test_sales = test_isbns.join(test_sales, on="isbn", how="left")
 
+    # X_train_full = train_isbns.hstack(X_train)
+    # X_test_full = test_isbns.hstack(X_test)
 
+    # sns.histplot(data=train_sales.to_pandas(), x="Next_Q4_log1p", bins=50, kde=True)
+    # plt.show()
     pass
