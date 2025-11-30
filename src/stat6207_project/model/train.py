@@ -13,8 +13,12 @@ X_test = torch.from_numpy(np.load(data_folder / 'X_test.npy')).float()
 input_dim = X_train.shape[1]
 
 # Initialize and train
-trainer = AutoEncoderTrainer(input_dim=input_dim, encoding_dim=16, lr=0.0005)  # Tune as needed
-trainer.train(X_train, epochs=100, batch_size=32, val_data=X_test)
+trainer = AutoEncoderTrainer(input_dim=input_dim, encoding_dim=32, lr=0.0005)  # Tune as needed
+trainer.train(X_train,
+              val_data=X_test,          # optional
+              epochs=200,
+              batch_size=32,
+              print_every=10)
 
 # Evaluate
 test_loss = trainer.evaluate(X_test)
