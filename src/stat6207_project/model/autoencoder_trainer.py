@@ -135,3 +135,20 @@ class AutoEncoderTrainer(nn.Module):
             print(f"Loss curve saved → {save_path}")
 
         plt.show()
+
+    def save_weights(self, part: str, path: str):
+        """
+        Save the weights (state_dict) of either the encoder or decoder to a file.
+
+        Args:
+            part: 'encoder' or 'decoder' to specify which part's weights to save.
+            path: File path to save the weights (e.g., 'encoder_weights.pth').
+        """
+        if part == 'encoder':
+            torch.save(self.model.encoder.state_dict(), path)
+            print(f"Encoder weights saved to {path}")
+        elif part == 'decoder':
+            torch.save(self.model.decoder.state_dict(), path)
+            print(f"Decoder weights saved to {path}")
+        else:
+            raise ValueError("part must be 'encoder' or 'decoder'")

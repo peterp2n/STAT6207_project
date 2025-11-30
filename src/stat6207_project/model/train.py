@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 # 1. Load data
 # -------------------------------
 data_folder = Path("data")
+data_folder.mkdir(parents=True, exist_ok=True)
 X_train_full = torch.from_numpy(np.load(data_folder / 'X_train.npy')).float()
 X_test       = torch.from_numpy(np.load(data_folder / 'X_test.npy')).float()
 
@@ -41,13 +42,13 @@ input_dim = X_train.shape[1]
 trainer = AutoEncoderTrainer(
     input_dim=input_dim,
     encoding_dim=32,
-    lr=0.0003
+    lr=0.0001
 )
 
 trainer.train(
     train_data=X_train,
     val_data=X_val,           # Now we have validation!
-    epochs=400,
+    epochs=300,
     batch_size=32,
     print_every=20
 )
@@ -61,6 +62,10 @@ print(f"\nFinal Test MSE: {test_mse:.6f}")
 # -------------------------------
 # 5. Plot with realistic, readable y-ticks (perfect for your loss range)
 # -------------------------------
+
+results_folder = Path("ae_results")
+results_folder.mkdir(parents=True, exist_ok=True)
+
 trainer.plot_losses(
     title="Autoencoder Reconstruction Loss (Children's Books Features)",
     y_scale='linear',
@@ -69,6 +74,9 @@ trainer.plot_losses(
              0.012, 0.014, 0.016, 0.018, 0.020],                # dense, readable ticks
     y_tick_labels=['0.000', '0.002', '0.004', '0.006', '0.008',
                    '0.010', '0.012', '0.014', '0.016', '0.018', '0.020'],
-    save_path="autoencoder_loss_zoomed.png",
+    save_path=results_folder / "autoencoder_loss.png",
     figsize=(12, 6)
 )
+
+# Save encoder weights (useful for feature extraction in sales prediction)
+trainer.save_weights('encoder', results_folder / 'encoder_weights.pth')
