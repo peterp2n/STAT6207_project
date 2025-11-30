@@ -3,7 +3,7 @@ import polars.selectors as cs
 import numpy as np
 from pathlib import Path
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn import set_config
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -195,7 +195,7 @@ if __name__ == "__main__":
             "expand_quarterly_sales_retail.csv",
             schema_overrides={
                 "barcode2": pl.Utf8,
-                "Quarter_num": pl.Enum(["1", "2", "3", "4"]),
+                "Quarter_num": pl.Utf8,
             }
         )
         .rename({"barcode2": "isbn"})
@@ -278,7 +278,42 @@ if __name__ == "__main__":
         test_books
         .join(test_sales, on="isbn", how="left")
     )
+    # ==================== 3. ONE-HOT ENCODING ====================
+    categorical_variables = ["book_format", "reading_age", "publisher", "Quarter_num"]
+
+    # 1. Handle Nulls specifically for Categorical Columns
+    # We cast to Utf8 (String) first to safely fill 'MISSING' without Enum errors.
+    # For 'Quarter_num', 'MISSING' effectively means "No Sales Record".
+    X_train_full = X_train_full.with_columns([
+        pl.col(c).cast(pl.Utf8).fill_null("MISSING") for c in categorical_variables
+    ])
+    X_test_full = X_test_full.with_columns([
+        pl.col(c).cast(pl.Utf8).fill_null("MISSING") for c in categorical_variables
+    ])
+
+    # 2. Initialize OneHotEncoder
+    # sparse_output=False -> Required because Polars doesn't support sparse columns yet
+    # handle_unknown='ignore' -> Safety net for future/unknown categories in Test set
+    ohe = OneHotEncoder(
+        sparse_output=False,
+        handle_unknown="ignore",
+        dtype=np.int8
+    )
+
+    # 3. Fit & Transform
+    ohe.fit(X_train_full.select(categorical_variables))
+
+    train_encoded = ohe.transform(X_train_full.select(categorical_variables))
+    test_encoded = ohe.transform(X_test_full.select(categorical_variables))
+
+    # 4. Stack and Drop
+    X_train_final = X_train_full.drop(categorical_variables).hstack(train_encoded)
+    X_test_final = X_test_full.drop(categorical_variables).hstack(test_encoded)
+
+    print("One-Hot Encoding Complete!")
+    print(f"Final Train Shape: {X_train_final.shape}")
 
     # sns.histplot(data=train_sales.to_pandas(), x="Next_Q4_log1p", bins=50, kde=True)
     # plt.show()
+
     pass
