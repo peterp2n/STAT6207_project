@@ -148,7 +148,8 @@ def preprocess_data(
     )
 
     # --- Feature Engineering (Books) ---
-    log1p_cols_books = ["item_weight", "length", "width", "height", "number_of_reviews", "customer_reviews", "price"]
+    log1p_cols_books = ["item_weight", "length", "width", "height", "number_of_reviews",
+                        "rating", "customer_reviews", "price", "print_length"]
     for col in log1p_cols_books:
         train_books = train_books.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
         test_books = test_books.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
@@ -157,7 +158,7 @@ def preprocess_data(
     test_books = test_books.with_columns((1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_inv_log1p"))
 
     final_numeric_cols_books = [
-        "print_length", "rating", "item_weight_log1p", "length_log1p", "width_log1p",
+        "print_length_log1p", "rating_log1p", "item_weight_log1p", "length_log1p", "width_log1p",
         "height_log1p", "number_of_reviews_log1p", "customer_reviews_log1p", "price_log1p", "bsr_inv_log1p"
     ]
 
