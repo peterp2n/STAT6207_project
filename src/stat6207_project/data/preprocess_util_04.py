@@ -207,11 +207,11 @@ def preprocess_data(books_df: pl.DataFrame, sales_df: pl.DataFrame):
     )
 
     # --- Merge ---
-    train_sales = train_isbns.join(train_sales, on="isbn", how="left")
-    test_sales = test_isbns.join(test_sales, on="isbn", how="left")
+    train_sales = train_isbns.join(train_sales, on="isbn", how="inner")
+    test_sales = test_isbns.join(test_sales, on="isbn", how="inner")
 
-    X_train_full = train_books.join(train_sales, on="isbn", how="left")
-    X_test_full = test_books.join(test_sales, on="isbn", how="left")
+    X_train_full = train_books.join(train_sales, on="isbn", how="inner")
+    X_test_full = test_books.join(test_sales, on="isbn", how="inner")
 
     # --- One-Hot Encoding ---
     categorical_variables = ["book_format", "reading_age", "publisher", "Quarter_num"]
