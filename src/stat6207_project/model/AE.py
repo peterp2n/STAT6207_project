@@ -1,12 +1,9 @@
-import polars as pl
-import polars.selectors as cs
 import numpy as np
-from pathlib import Path
+import polars as pl
+import torch
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn import set_config
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 # 1. Magic Switch: Use Polars engine (Fixes the 'concatenate' crash too!)
 set_config(transform_output="polars")
@@ -111,11 +108,20 @@ def impute_by_group(
     return train_imputed, test_imputed
 
 
-if __name__ == "__main__":
-    # --- Load & Prep ---
-    data_folder = Path("data")
-    df = pl.read_csv(data_folder / "merged3.csv", schema_overrides={"isbn": pl.Utf8})
-    df_feat = df.drop(["title", "publication_date"])
+def preprocess_data(books_df: pl.DataFrame, sales_df: pl.DataFrame):
+    """
+    Preprocesses raw dataframes, handles leaks, scaling, and encoding.
+
+    Returns:
+    --------
+        train_df, test_df (Polars DataFrames - Ready for model input selection)
+        scaler_books (Sklearn Scaler for book features)
+        scaler_sales (Sklearn Scaler for sales targets/features)
+    """
+    print("--- Starting Data Preprocessing ---")
+
+    # --- Books Prep ---
+    df_feat = books_df.with_columns(pl.col("isbn").cast(pl.Utf8)).drop(["title", "publication_date"], strict=False)
 
     # --- Split ---
     train_full, test_full = train_test_split(df_feat, test_size=0.2, random_state=42, shuffle=True)
@@ -124,52 +130,29 @@ if __name__ == "__main__":
     train_isbns, test_isbns = train_full.select("isbn"), test_full.select("isbn")
     train_books, test_books = train_full.drop("isbn"), test_full.drop("isbn")
 
-    # Impute categorical book_format and reading_age by mode group by publisher
+    # --- Imputation ---
     train_books, test_books = impute_by_group(
-        train_df=train_books,
-        test_df=test_books,
-        group_col="publisher",
-        target_cols=["book_format", "reading_age"],
-        strategy="mode"
+        train_books, test_books, "publisher", ["book_format", "reading_age"], "mode"
+    )
+    train_books, test_books = impute_by_group(
+        train_books, test_books, "publisher",
+        ["print_length", "item_weight", "length", "width", "height", "rating",
+         "number_of_reviews", "price", "best_sellers_rank", "customer_reviews"],
+        "median"
     )
 
-    # Impute the numeric columns by median group by publisher
-    train_books, test_books = impute_by_group(
-        train_df=train_books,
-        test_df=test_books,
-        group_col="publisher",
-        target_cols=[
-            "print_length", "item_weight", "length", "width", "height", "rating",
-            "number_of_reviews", "price", "best_sellers_rank", "customer_reviews"
-        ],
-        strategy="median"
-    )
-
-    # ==================== LOG1P + BEST_SELLERS_RANK FIX ====================
-    log1p_cols_books = [
-        "item_weight", "length", "width", "height",
-        "number_of_reviews", "customer_reviews", "price"
-    ]
+    # --- Feature Engineering (Books) ---
+    log1p_cols_books = ["item_weight", "length", "width", "height", "number_of_reviews", "customer_reviews", "price"]
     for col in log1p_cols_books:
         train_books = train_books.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
         test_books = test_books.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
 
-    # Invert + log best_sellers_rank
-    train_books = train_books.with_columns(
-        (1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_inv_log1p")
-    )
-    test_books = test_books.with_columns(
-        (1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_inv_log1p")
-    )
+    train_books = train_books.with_columns((1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_inv_log1p"))
+    test_books = test_books.with_columns((1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_inv_log1p"))
 
-    # ==================== FINAL SCALING ====================
     final_numeric_cols_books = [
-        "print_length",  # no log
-        "rating",  # no log
-        "item_weight_log1p", "length_log1p", "width_log1p", "height_log1p",
-        "number_of_reviews_log1p", "customer_reviews_log1p",
-        "price_log1p",
-        "bsr_inv_log1p"
+        "print_length", "rating", "item_weight_log1p", "length_log1p", "width_log1p",
+        "height_log1p", "number_of_reviews_log1p", "customer_reviews_log1p", "price_log1p", "bsr_inv_log1p"
     ]
 
     scaler_books = StandardScaler()
@@ -186,134 +169,79 @@ if __name__ == "__main__":
     train_books = train_isbns.hstack(train_books)
     test_books = test_isbns.hstack(test_books)
 
-    print("merged3 preprocessing complete with proper log1p!")
-    print(f"Train shape: {train_books.shape}, Test shape: {test_books.shape}")
-    print("Final scaled columns:", final_numeric_cols_books)
-
-    sales_data = (
-        pl.read_csv(
-            "expand_quarterly_sales_retail.csv",
-            schema_overrides={
-                "barcode2": pl.Utf8,
-                "Quarter_num": pl.Utf8,
-            }
-        )
-        .rename({"barcode2": "isbn"})
-    )
-
-    # --- 1. Split sales_data according to the original train/test ISBN split ---
+    # --- Sales Prep ---
+    sales_data = sales_df.with_columns(pl.col("isbn").cast(pl.Utf8))
 
     train_sales = sales_data.filter(pl.col("isbn").is_in(train_isbns["isbn"]))
     test_sales = sales_data.filter(pl.col("isbn").is_in(test_isbns["isbn"]))
 
-    train_sales = (
-        train_sales
-        .with_columns([
-            pl.col("Avg_discount")
-            .replace({float("-inf"): 0.0, float("inf"): 0.0})
-            .fill_nan(0.0)
-            .fill_null(0.0)
-            .clip(lower_bound=0.0)
-            .alias("Avg_discount_cleaned"),
-            pl.col("Next_Q1").fill_null(0.0).alias("Next_Q1"),
-            pl.col("Next_Q2").fill_null(0.0).alias("Next_Q2"),
-            pl.col("Next_Q3").fill_null(0.0).alias("Next_Q3"),
-            pl.col("Next_Q4").fill_null(0.0).alias("Next_Q4")
-        ])
-    )
+    # --- Sales Cleaning ---
+    cols_to_clean = [
+        pl.col("Avg_discount").fill_nan(0.0).fill_null(0.0).clip(lower_bound=0.0).alias("Avg_discount_cleaned"),
+        pl.col("Next_Q1").fill_null(0.0), pl.col("Next_Q2").fill_null(0.0),
+        pl.col("Next_Q3").fill_null(0.0), pl.col("Next_Q4").fill_null(0.0)
+    ]
+    train_sales = train_sales.with_columns(cols_to_clean)
+    test_sales = test_sales.with_columns(cols_to_clean)
 
-    test_sales = (
-        test_sales
-        .with_columns([
-            pl.col("Avg_discount")
-            .replace({float("-inf"): 0.0, float("inf"): 0.0})
-            .fill_nan(0.0)
-            .fill_null(0.0)
-            .clip(lower_bound=0.0)
-            .alias("Avg_discount_cleaned"),
-            pl.col("Next_Q1").fill_null(0.0).alias("Next_Q1"),
-            pl.col("Next_Q2").fill_null(0.0).alias("Next_Q2"),
-            pl.col("Next_Q3").fill_null(0.0).alias("Next_Q3"),
-            pl.col("Next_Q4").fill_null(0.0).alias("Next_Q4")
-        ])
-    )
-
-    log1p_cols_sales = ['Previous_quarter_qty', 'Current_quarter_qty', 'Avg_discount_cleaned', 'Next_Q1', 'Next_Q2',
-                        'Next_Q3', 'Next_Q4']
+    log1p_cols_sales = ['Previous_quarter_qty', 'Current_quarter_qty', 'Avg_discount_cleaned',
+                        'Next_Q1', 'Next_Q2', 'Next_Q3', 'Next_Q4']
 
     for col in log1p_cols_sales:
         train_sales = train_sales.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
         test_sales = test_sales.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
 
     final_numeric_cols_sales = [
-        'Previous_quarter_qty_log1p',
-        'Current_quarter_qty_log1p',
-        'Avg_discount_cleaned_log1p',
-        'Next_Q1_log1p',
-        'Next_Q2_log1p',
-        'Next_Q3_log1p',
-        'Next_Q4_log1p'
+        'Previous_quarter_qty_log1p', 'Current_quarter_qty_log1p', 'Avg_discount_cleaned_log1p',
+        'Next_Q1_log1p', 'Next_Q2_log1p', 'Next_Q3_log1p', 'Next_Q4_log1p'
     ]
 
     scaler_sales = StandardScaler()
-    # Fit and transform in one step, then replace directly
     train_sales = train_sales.with_columns(
         scaler_sales.fit_transform(train_sales.select(final_numeric_cols_sales))
-        .rename(dict(zip(scaler_sales.feature_names_in_, final_numeric_cols_sales)))  # safe name restore
+        .rename(dict(zip(scaler_sales.feature_names_in_, final_numeric_cols_sales)))
     )
     test_sales = test_sales.with_columns(
         scaler_sales.transform(test_sales.select(final_numeric_cols_sales))
         .rename(dict(zip(scaler_sales.feature_names_in_, final_numeric_cols_sales)))
     )
 
-    # --- 2. Join book features (already clean & scaled) to sales records ---
+    # --- Merge ---
     train_sales = train_isbns.join(train_sales, on="isbn", how="left")
     test_sales = test_isbns.join(test_sales, on="isbn", how="left")
 
-    X_train_full = (
-        train_books
-        .join(train_sales, on="isbn", how="left")
-    )
-    X_test_full = (
-        test_books
-        .join(test_sales, on="isbn", how="left")
-    )
-    # ==================== 3. ONE-HOT ENCODING ====================
+    X_train_full = train_books.join(train_sales, on="isbn", how="left")
+    X_test_full = test_books.join(test_sales, on="isbn", how="left")
+
+    # --- One-Hot Encoding ---
     categorical_variables = ["book_format", "reading_age", "publisher", "Quarter_num"]
 
-    # 1. Handle Nulls specifically for Categorical Columns
-    # We cast to Utf8 (String) first to safely fill 'MISSING' without Enum errors.
-    # For 'Quarter_num', 'MISSING' effectively means "No Sales Record".
-    X_train_full = X_train_full.with_columns([
-        pl.col(c).cast(pl.Utf8).fill_null("MISSING") for c in categorical_variables
-    ])
-    X_test_full = X_test_full.with_columns([
-        pl.col(c).cast(pl.Utf8).fill_null("MISSING") for c in categorical_variables
-    ])
+    X_train_full = X_train_full.with_columns(
+        [pl.col(c).cast(pl.Utf8).fill_null("MISSING") for c in categorical_variables])
+    X_test_full = X_test_full.with_columns(
+        [pl.col(c).cast(pl.Utf8).fill_null("MISSING") for c in categorical_variables])
 
-    # 2. Initialize OneHotEncoder
-    # sparse_output=False -> Required because Polars doesn't support sparse columns yet
-    # handle_unknown='ignore' -> Safety net for future/unknown categories in Test set
-    ohe = OneHotEncoder(
-        sparse_output=False,
-        handle_unknown="ignore",
-        dtype=np.int8
-    )
-
-    # 3. Fit & Transform
+    ohe = OneHotEncoder(sparse_output=False, handle_unknown="ignore", dtype=np.int8)
     ohe.fit(X_train_full.select(categorical_variables))
 
     train_encoded = ohe.transform(X_train_full.select(categorical_variables))
     test_encoded = ohe.transform(X_test_full.select(categorical_variables))
 
-    # 4. Stack and Drop
     X_train_final = X_train_full.drop(categorical_variables).hstack(train_encoded)
     X_test_final = X_test_full.drop(categorical_variables).hstack(test_encoded)
 
-    print("One-Hot Encoding Complete!")
-    print(f"Final Train Shape: {X_train_final.shape}")
+    print(f"Preprocessing Done! Train Cols: {X_train_final.width}, Test Cols: {X_test_final.width}")
 
-    # sns.histplot(data=train_sales.to_pandas(), x="Next_Q4_log1p", bins=50, kde=True)
-    # plt.show()
+    return X_train_final, X_test_final, scaler_books, scaler_sales
 
-    pass
+
+def to_tensors(df: pl.DataFrame, target_col: str, drop_cols: list[str]):
+    """Converts a specific dataframe to X and y tensors."""
+    # 1. Identify features (exclude target and dropped cols)
+    feature_cols = [c for c in df.columns if c != target_col and c not in drop_cols]
+
+    # 2. Cast to Float32 (Critical for PyTorch)
+    X_np = df.select(feature_cols).cast(pl.Float32).to_numpy()
+    y_np = df.select(target_col).cast(pl.Float32).to_numpy()
+
+    return torch.tensor(X_np), torch.tensor(y_np), feature_cols
