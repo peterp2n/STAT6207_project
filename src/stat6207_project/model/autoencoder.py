@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-class Autoencoder(nn.Module):
+class AutoEncoder(nn.Module):
     def __init__(self, input_dim: int, encoding_dim: int = 32):
         super().__init__()
         self.encoder = nn.Sequential(
