@@ -1,36 +1,74 @@
+# train.py
 import torch
 import numpy as np
 from pathlib import Path
 from autoencoder_trainer import AutoEncoderTrainer
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
 
-# Load pre-saved data (assuming X is features like concatenated book metadata + past sales)
+# -------------------------------
+# 1. Load data
+# -------------------------------
 data_folder = Path("data")
-X_train = torch.from_numpy(np.load(data_folder / 'X_train.npy')).float()
-X_test = torch.from_numpy(np.load(data_folder / 'X_test.npy')).float()
-# y_train/y_test would be used later for a regressor, e.g., predicting Next_Q1 sales
+X_train_full = torch.from_numpy(np.load(data_folder / 'X_train.npy')).float()
+X_test       = torch.from_numpy(np.load(data_folder / 'X_test.npy')).float()
 
-# Determine input_dim from data (e.g., book features: print_length, rating, price, etc.)
+print(f"Full train set: {X_train_full.shape}")
+print(f"Test set:       {X_test.shape}")
+
+# -------------------------------
+# 2. Create a validation set from training data (highly recommended!)
+# -------------------------------
+# We'll use 10% of training data as validation → prevents overfitting
+X_train, X_val = train_test_split(
+    X_train_full,
+    test_size=0.1,
+    random_state=42,
+    shuffle=True
+)
+
+X_train = torch.tensor(X_train)
+X_val   = torch.tensor(X_val)
+
+print(f"→ Training set:   {X_train.shape}")
+print(f"→ Validation set: {X_val.shape}")
+
 input_dim = X_train.shape[1]
 
-# Initialize and train
-trainer = AutoEncoderTrainer(input_dim=input_dim, encoding_dim=32, lr=0.0005)  # Tune as needed
+# -------------------------------
+# 3. Initialize and train
+# -------------------------------
+trainer = AutoEncoderTrainer(
+    input_dim=input_dim,
+    encoding_dim=32,
+    lr=0.0003
+)
 
 trainer.train(
     train_data=X_train,
-    val_data=X_test,           # highly recommended!
-    epochs=200,
-    batch_size=64,
+    val_data=X_val,           # Now we have validation!
+    epochs=400,
+    batch_size=32,
     print_every=20
 )
 
-# Final test performance
+# -------------------------------
+# 4. Final evaluation on held-out test set
+# -------------------------------
 test_mse = trainer.evaluate(X_test)
-print(f"Final Test MSE: {test_mse:.6f}")
+print(f"\nFinal Test MSE: {test_mse:.6f}")
 
+# -------------------------------
+# 5. Plot with realistic, readable y-ticks (perfect for your loss range)
+# -------------------------------
 trainer.plot_losses(
-    title="Autoencoder MSE (Log Scale) - Children's Books Features",
-    y_scale='log',
-    y_lim=(1e-6, 1.0),
-    y_ticks=[1e-6, 1e-5, 1e-4, 0.001, 0.01, 0.1, 1.0],
-    save_path="ae_loss_log_scale.png"
+    title="Autoencoder Reconstruction Loss (Children's Books Features)",
+    y_scale='linear',
+    y_lim=(0.0, 0.02),                                          # Upper limit = 0.02
+    y_ticks=[0.000, 0.002, 0.004, 0.006, 0.008, 0.010,
+             0.012, 0.014, 0.016, 0.018, 0.020],                # dense, readable ticks
+    y_tick_labels=['0.000', '0.002', '0.004', '0.006', '0.008',
+                   '0.010', '0.012', '0.014', '0.016', '0.018', '0.020'],
+    save_path="autoencoder_loss_zoomed.png",
+    figsize=(12, 6)
 )
