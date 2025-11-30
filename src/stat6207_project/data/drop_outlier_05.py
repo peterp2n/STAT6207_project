@@ -101,6 +101,21 @@ def get_cleaned_dataframes(df_original: pl.DataFrame, inlier_mask: np.ndarray) -
     return df_original.filter(pl.Series(inlier_mask))
 
 
+def get_cleaned_dataframes(df_original: pl.DataFrame, inlier_mask: np.ndarray) -> pl.DataFrame:
+    """
+    Returns the cleaned version of the original DataFrame with outliers removed.
+
+    Args:
+        df_original (pl.DataFrame): The original DataFrame before outlier removal.
+        inlier_mask (np.ndarray): Boolean array where True indicates inliers.
+
+    Returns:
+        pl.DataFrame: Cleaned DataFrame with only inliers.
+    """
+    if len(inlier_mask) != len(df_original):
+        raise ValueError("Inlier mask length must match the DataFrame length.")
+    return df_original.filter(pl.Series(inlier_mask))
+
 
 if __name__ == "__main__":
     # --------------------------- Load data ---------------------------------
@@ -114,25 +129,27 @@ if __name__ == "__main__":
     )
 
     unwanted_cols = [
-        "isbn", "title", "author",
-        "Next_Q1", "Next_Q2", "Next_Q3", "Next_Q4",
-        "Next_Q2_log1p", "Next_Q3_log1p", "Next_Q4_log1p",
-        "Current_quarter", "First_day", "Avg_discount",
+        "isbn", "title",  # Removed 'author' if not present
+        "Next_Q1", "Next_Q2", "Next_Q3", "Next_Q4", "Next_Q2_log1p", "Next_Q3_log1p", "Next_Q4_log1p",
+        "Current_quarter", "First_day", "Avg_discount", "print_length", "item_weight", "length", "width", "height",
+        "rating", "number_of_reviews", "customer_reviews", "best_sellers_rank", "price",
+        "Previous_quarter_qty", "Current_quarter_qty"
     ]
 
     target_col = "Next_Q1_log1p"
 
     # --------------------------- Preprocess --------------------------------
     X_train, X_test, _, _ = preprocess_data(books_df=df_books, sales_df=df_sales, test_size=0.2, random_state=42, shuffle=True)
-    y_train, y_test = X_train.select(["isbn", target_col]), X_test.select(["isbn", target_col])
-
 
     # Keep only the features we will actually train on
     feats = [c for c in X_train.columns if c != target_col and c not in unwanted_cols]
+
     X_train_np = X_train.select(feats).to_numpy().astype(np.float32)
-    y_train_np = y_train.select(target_col).to_numpy().astype(np.float32)
     X_test_np = X_test.select(feats).to_numpy().astype(np.float32)
-    y_test_np = y_test.select(target_col).to_numpy().astype(np.float32)
+
+    # Check for NaNs/infs (add this for robustness)
+    if np.any(np.isnan(X_train_np)) or np.any(np.isinf(X_train_np)):
+        raise ValueError("NaNs or Infs detected in training features – handle in preprocess_data.")
 
     print(f"Feature matrix shape: {X_train_np.shape}")
 
@@ -147,7 +164,7 @@ if __name__ == "__main__":
     )
     X_2d = tsne.fit_transform(X_train_np)
 
-    db = DBSCAN(eps=3.0, min_samples=10)  # you can tune eps later
+    db = DBSCAN(eps=3.0, min_samples=10)  # Tune eps/min_samples based on plot
     labels = db.fit_predict(X_2d)  # -1 = outlier
     inlier_mask = labels != -1  # True = keep
 
@@ -156,17 +173,15 @@ if __name__ == "__main__":
     # --------------------------- Visualization ------------------------------
     plot_outlier_comparison_matplotlib(
         X_full=X_train_np,
-        outlier_mask=labels == -1,  # True where outlier
+        outlier_mask=labels == -1,
         X_clean=X_train_np[inlier_mask],
         perplexity=40,
         save_path="tsne_outlier_removal_before_after.png",
     )
 
     # --------------------------- Get Cleaned DataFrames --------------------
-    # Clean the training set
     X_train_clean = get_cleaned_dataframes(X_train, inlier_mask)
     print(f"Cleaned training DataFrame shape: {X_train_clean.shape}")
-
 
     # --------------------------- Convert to PyTorch tensors ----------------
     X_tensor, y_tensor, _ = to_tensors(
@@ -178,15 +193,19 @@ if __name__ == "__main__":
     X_numpy = X_tensor.numpy()
     y_numpy = y_tensor.numpy()
 
-    np.save(Path("data") / "X_train.npy", X_numpy)
-    get_cleaned_dataframes(X_train, inlier_mask).write_csv(Path("data") / "X_train.csv", include_bom=True)
-    np.save(Path("data") / "y_train.npy", y_numpy)
-    get_cleaned_dataframes(y_train, inlier_mask).write_csv(Path("data") / "y_train.csv", include_bom=True)
-    np.save(Path("data") / "X_test.npy", X_test_np)
-    X_test.write_csv(Path("data") / "X_test.csv", include_bom=True)
-    np.save(Path("data") / "y_test.npy", y_test_np)
-    y_test.write_csv(Path("data") / "y_test.csv", include_bom=True)
+    save_dir = Path("data")
+    # Save .npy (pure features/target numerics)
+    np.save(save_dir / "X_train.npy", X_numpy)
+    np.save(save_dir / "y_train.npy", y_numpy)
+    np.save(save_dir / "X_test.npy", X_test_np)
+    np.save(save_dir / "y_test.npy", X_test.select(target_col).to_numpy().astype(np.float32))
 
+    # Save CSVs with ISBN (features separate from target)
+
+    X_train_clean.select(["isbn"] + feats).write_csv(save_dir / "X_train_with_isbn.csv")  # ISBN + features
+    X_train_clean.select(["isbn", target_col]).write_csv(save_dir / "y_train_with_isbn.csv")  # ISBN + target
+    X_test.select(["isbn"] + feats).write_csv(save_dir / "X_test_with_isbn.csv")
+    X_test.select(["isbn", target_col]).write_csv(save_dir / "y_test_with_isbn.csv")
 
     print("\nReady for training!")
     print(f"   X_tensor shape : {X_tensor.shape}")
