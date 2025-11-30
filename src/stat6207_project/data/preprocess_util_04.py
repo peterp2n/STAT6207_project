@@ -108,7 +108,13 @@ def impute_by_group(
     return train_imputed, test_imputed
 
 
-def preprocess_data(books_df: pl.DataFrame, sales_df: pl.DataFrame):
+def preprocess_data(
+        books_df: pl.DataFrame,
+        sales_df: pl.DataFrame,
+        test_size: float = 0.2,
+        random_state: int = 42,
+        shuffle: bool = True,
+):
     """
     Preprocesses raw dataframes, handles leaks, scaling, and encoding.
 
@@ -124,7 +130,7 @@ def preprocess_data(books_df: pl.DataFrame, sales_df: pl.DataFrame):
     df_feat = books_df.with_columns(pl.col("isbn").cast(pl.Utf8)).drop(["title", "publication_date"], strict=False)
 
     # --- Split ---
-    train_full, test_full = train_test_split(df_feat, test_size=0.2, random_state=42, shuffle=True)
+    train_full, test_full = train_test_split(df_feat, test_size=test_size, random_state=random_state, shuffle=shuffle)
 
     # Separate ISBN (Leakage Prevention)
     train_isbns, test_isbns = train_full.select("isbn"), test_full.select("isbn")

@@ -120,7 +120,7 @@ if __name__ == "__main__":
     ]
 
     # --------------------------- Preprocess --------------------------------
-    X_train, X_test, _, _ = preprocess_data(books_df=df_books, sales_df=df_sales)
+    X_train, X_test, _, _ = preprocess_data(books_df=df_books, sales_df=df_sales, test_size=0.2, random_state=42, shuffle=True)
 
     # Keep only the features we will actually train on
     feats = [c for c in X_train.columns if c != "Next_Q1_log1p" and c not in unwanted_cols]
