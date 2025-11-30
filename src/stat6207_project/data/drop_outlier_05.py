@@ -1,5 +1,3 @@
-# train.py – Complete pipeline with t-SNE + DBSCAN + clean matplotlib visualization
-
 import polars as pl
 import numpy as np
 import matplotlib.pyplot as plt
@@ -86,9 +84,23 @@ def plot_outlier_comparison_matplotlib(
     print(f"Removed {n_outliers:,} outliers ({n_outliers / n_total:.2%})")
 
 
-# =============================================================================
-# ============================== MAIN SCRIPT ==================================
-# =============================================================================
+def get_cleaned_dataframes(df_original: pl.DataFrame, inlier_mask: np.ndarray) -> pl.DataFrame:
+    """
+    Returns the cleaned version of the original DataFrame with outliers removed.
+
+    Args:
+        df_original (pl.DataFrame): The original DataFrame before outlier removal.
+        inlier_mask (np.ndarray): Boolean array where True indicates inliers.
+
+    Returns:
+        pl.DataFrame: Cleaned DataFrame with only inliers.
+    """
+    if len(inlier_mask) != len(df_original):
+        raise ValueError("Inlier mask length must match the DataFrame length.")
+    return df_original.filter(pl.Series(inlier_mask))
+
+
+
 if __name__ == "__main__":
     # --------------------------- Load data ---------------------------------
     df_books = pl.read_csv("data/merged3.csv", schema_overrides={"isbn": pl.Utf8})
@@ -126,23 +138,26 @@ if __name__ == "__main__":
     )
     X_2d = tsne.fit_transform(X_np)
 
-    db = DBSCAN(eps=3.0, min_samples=10)      # you can tune eps later
-    labels = db.fit_predict(X_2d)             # -1 = outlier
-    inlier_mask = labels != -1                # True = keep
+    db = DBSCAN(eps=3.0, min_samples=10)  # you can tune eps later
+    labels = db.fit_predict(X_2d)  # -1 = outlier
+    inlier_mask = labels != -1  # True = keep
 
     print(f"DBSCAN found {(labels == -1).sum():,} outliers")
 
     # --------------------------- Visualization ------------------------------
     plot_outlier_comparison_matplotlib(
         X_full=X_np,
-        outlier_mask=labels == -1,            # True where outlier
+        outlier_mask=labels == -1,  # True where outlier
         X_clean=X_np[inlier_mask],
         perplexity=40,
         save_path="tsne_outlier_removal_before_after.png",
     )
 
-    # --------------------------- Clean Polars DataFrame --------------------
-    X_train_clean = X_train.filter(pl.Series(inlier_mask))
+    # --------------------------- Get Cleaned DataFrames --------------------
+    # Clean the training set
+    X_train_clean = get_cleaned_dataframes(X_train, inlier_mask)
+    print(f"Cleaned training DataFrame shape: {X_train_clean.shape}")
+
 
     # --------------------------- Convert to PyTorch tensors ----------------
     X_tensor, y_tensor, _ = to_tensors(
