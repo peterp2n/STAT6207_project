@@ -239,6 +239,18 @@ if __name__ == "__main__":
     # X_train_full = train_isbns.hstack(X_train)
     # X_test_full = test_isbns.hstack(X_test)
 
+    train_sales = (
+        train_sales
+        .with_columns([
+            pl.col("Avg_discount")
+            .replace({float("-inf"): 0.0, float("inf"): 0.0})
+            .fill_nan(0.0)
+            .fill_null(0.0)
+            .clip(lower_bound=0.0)
+            .alias("Avg_discount")
+        ])
+    )
+
     numeric_cols_sales = sales_data.select(cs.numeric()).columns
     scaler_sales = StandardScaler()
     # Fit and transform in one step, then replace directly
