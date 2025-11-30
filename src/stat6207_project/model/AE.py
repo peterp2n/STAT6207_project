@@ -147,7 +147,7 @@ if __name__ == "__main__":
     train_full, test_full = train_test_split(df_feat, test_size=0.2, random_state=42, shuffle=True)
 
     # Separate ISBN (Leakage Prevention)
-    train_isbn, test_isbn = train_full.select("isbn"), test_full.select("isbn")
+    train_isbns, test_isbns = train_full.select("isbn"), test_full.select("isbn")
     X_train, X_test = train_full.drop("isbn"), test_full.drop("isbn")
 
     # Impute categorical book_format and reading_age by mode group by publisher
@@ -159,7 +159,7 @@ if __name__ == "__main__":
         strategy="mode"
     )
 
-    # Impute the numeric columns by median group by publisher (before scaling)
+    # Impute the numeric columns by median group by publisher
     X_train, X_test = impute_by_group(
         train_df=X_train,
         test_df=X_test,
@@ -171,18 +171,86 @@ if __name__ == "__main__":
         strategy="median"
     )
 
-    # Standardize the numeric columns (now on imputed data)`
-    numeric_cols_books = X_train.select(cs.numeric()).columns
-    scaler_books = StandardScaler()
-    # Fit and transform in one step, then replace directly
+    # ==================== LOG1P + BEST_SELLERS_RANK FIX ====================
+    log1p_cols = [
+        "item_weight", "length", "width", "height",
+        "number_of_reviews", "customer_reviews", "price"
+    ]
+    for col in log1p_cols:
+        X_train = X_train.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
+        X_test  = X_test.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
+
+    # Invert + log best_sellers_rank
     X_train = X_train.with_columns(
-        scaler_books.fit_transform(X_train.select(numeric_cols_books))
-        .rename(dict(zip(scaler_books.feature_names_in_, numeric_cols_books)))  # safe name restore
+        (1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_score_log1p")
+    )
+    X_test = X_test.with_columns(
+        (1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_score_log1p")
     )
 
-    X_test = X_test.with_columns(
-        scaler_books.transform(X_test.select(numeric_cols_books))
-        .rename(dict(zip(scaler_books.feature_names_in_, numeric_cols_books)))
+    # ==================== FINAL SCALING ====================
+    final_numeric_cols = [
+        "print_length",           # no log
+        "rating",                 # no log
+        "item_weight_log1p", "length_log1p", "width_log1p", "height_log1p",
+        "number_of_reviews_log1p", "customer_reviews_log1p",
+        "price_log1p",
+        "bsr_score_log1p"
+    ]
+
+    scaler_books = StandardScaler()
+    X_train = X_train.with_columns(
+        scaler_books.fit_transform(X_train.select(final_numeric_cols))
+        .rename(dict(zip(scaler_books.feature_names_in_, final_numeric_cols)))
     )
+    X_test = X_test.with_columns(
+        scaler_books.transform(X_test.select(final_numeric_cols))
+        .rename(dict(zip(scaler_books.feature_names_in_, final_numeric_cols)))
+    )
+
+    # Re-attach ISBNs
+    X_train = train_isbns.hstack(X_train)
+    X_test  = test_isbns.hstack(X_test)
+
+    print("merged3 preprocessing complete with proper log1p!")
+    print(f"Train shape: {X_train.shape}, Test shape: {X_test.shape}")
+    print("Final scaled columns:", final_numeric_cols)
+
+    sales_data = (
+        pl.read_csv(
+            "expand_quarterly_sales_retail.csv",
+            schema_overrides={
+                "barcode2": pl.Utf8,
+                "Quarter_num": pl.Enum(["1", "2", "3", "4"]),
+            }
+        )
+        .rename({"barcode2": "isbn"})
+    )
+
+    # --- 1. Split sales_data according to the original train/test ISBN split ---
+
+    train_sales = sales_data.filter(pl.col("isbn").is_in(train_isbns["isbn"]))
+    test_sales = sales_data.filter(pl.col("isbn").is_in(test_isbns["isbn"]))
+
+    # --- 2. Join book features (already clean & scaled) to sales records ---
+    train_sales = train_isbns.join(train_sales, on="isbn", how="left")
+    test_sales = test_isbns.join(test_sales, on="isbn", how="left")
+
+    # X_train_full = train_isbns.hstack(X_train)
+    # X_test_full = test_isbns.hstack(X_test)
+
+    numeric_cols_sales = sales_data.select(cs.numeric()).columns
+    scaler_sales = StandardScaler()
+    # Fit and transform in one step, then replace directly
+    train_sales = train_sales.with_columns(
+        scaler_sales.fit_transform(train_sales.select(numeric_cols_sales))
+        .rename(dict(zip(scaler_sales.feature_names_in_, numeric_cols_sales)))  # safe name restore
+    )
+    test_sales = test_sales.with_columns(
+        scaler_sales.transform(test_sales.select(numeric_cols_sales))
+        .rename(dict(zip(scaler_sales.feature_names_in_, numeric_cols_sales)))
+    )
+
+
 
     pass
