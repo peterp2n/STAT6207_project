@@ -14,17 +14,23 @@ input_dim = X_train.shape[1]
 
 # Initialize and train
 trainer = AutoEncoderTrainer(input_dim=input_dim, encoding_dim=32, lr=0.0005)  # Tune as needed
-trainer.train(X_train,
-              val_data=X_test,          # optional
-              epochs=200,
-              batch_size=32,
-              print_every=10)
 
-# Evaluate
-test_loss = trainer.evaluate(X_test)
-print(f"Test Reconstruction Loss: {test_loss:.4f}")
+trainer.train(
+    train_data=X_train,
+    val_data=X_test,           # highly recommended!
+    epochs=200,
+    batch_size=64,
+    print_every=20
+)
 
-# Get embeddings for downstream sales prediction
-train_embeddings = trainer.get_embeddings(X_train)
-test_embeddings = trainer.get_embeddings(X_test)
-# Now train a regressor: e.g., nn.Linear(16, 1) on train_embeddings -> y_train
+# Final test performance
+test_mse = trainer.evaluate(X_test)
+print(f"Final Test MSE: {test_mse:.6f}")
+
+trainer.plot_losses(
+    title="Autoencoder MSE (Log Scale) - Children's Books Features",
+    y_scale='log',
+    y_lim=(1e-6, 1.0),
+    y_ticks=[1e-6, 1e-5, 1e-4, 0.001, 0.01, 0.1, 1.0],
+    save_path="ae_loss_log_scale.png"
+)
