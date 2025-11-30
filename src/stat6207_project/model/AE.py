@@ -122,21 +122,21 @@ if __name__ == "__main__":
 
     # Separate ISBN (Leakage Prevention)
     train_isbns, test_isbns = train_full.select("isbn"), test_full.select("isbn")
-    X_train, X_test = train_full.drop("isbn"), test_full.drop("isbn")
+    train_books, test_books = train_full.drop("isbn"), test_full.drop("isbn")
 
     # Impute categorical book_format and reading_age by mode group by publisher
-    X_train, X_test = impute_by_group(
-        train_df=X_train,
-        test_df=X_test,
+    train_books, test_books = impute_by_group(
+        train_df=train_books,
+        test_df=test_books,
         group_col="publisher",
         target_cols=["book_format", "reading_age"],
         strategy="mode"
     )
 
     # Impute the numeric columns by median group by publisher
-    X_train, X_test = impute_by_group(
-        train_df=X_train,
-        test_df=X_test,
+    train_books, test_books = impute_by_group(
+        train_df=train_books,
+        test_df=test_books,
         group_col="publisher",
         target_cols=[
             "print_length", "item_weight", "length", "width", "height", "rating",
@@ -151,14 +151,14 @@ if __name__ == "__main__":
         "number_of_reviews", "customer_reviews", "price"
     ]
     for col in log1p_cols_books:
-        X_train = X_train.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
-        X_test = X_test.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
+        train_books = train_books.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
+        test_books = test_books.with_columns(pl.col(col).log1p().alias(f"{col}_log1p"))
 
     # Invert + log best_sellers_rank
-    X_train = X_train.with_columns(
+    train_books = train_books.with_columns(
         (1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_inv_log1p")
     )
-    X_test = X_test.with_columns(
+    test_books = test_books.with_columns(
         (1.0 / (pl.col("best_sellers_rank") + 1)).log1p().alias("bsr_inv_log1p")
     )
 
@@ -173,21 +173,21 @@ if __name__ == "__main__":
     ]
 
     scaler_books = StandardScaler()
-    X_train = X_train.with_columns(
-        scaler_books.fit_transform(X_train.select(final_numeric_cols_books))
+    train_books = train_books.with_columns(
+        scaler_books.fit_transform(train_books.select(final_numeric_cols_books))
         .rename(dict(zip(scaler_books.feature_names_in_, final_numeric_cols_books)))
     )
-    X_test = X_test.with_columns(
-        scaler_books.transform(X_test.select(final_numeric_cols_books))
+    test_books = test_books.with_columns(
+        scaler_books.transform(test_books.select(final_numeric_cols_books))
         .rename(dict(zip(scaler_books.feature_names_in_, final_numeric_cols_books)))
     )
 
     # Re-attach ISBNs
-    X_train = train_isbns.hstack(X_train)
-    X_test = test_isbns.hstack(X_test)
+    train_books = train_isbns.hstack(train_books)
+    test_books = test_isbns.hstack(test_books)
 
     print("merged3 preprocessing complete with proper log1p!")
-    print(f"Train shape: {X_train.shape}, Test shape: {X_test.shape}")
+    print(f"Train shape: {train_books.shape}, Test shape: {test_books.shape}")
     print("Final scaled columns:", final_numeric_cols_books)
 
     sales_data = (
