@@ -10,34 +10,6 @@ from sklearn import set_config
 set_config(transform_output="polars")
 
 
-def decode_pl(df, enc, cols):
-    # 1. Extract the imputed float values
-    vals = df.select(cols).to_numpy()
-
-    decoded_series = []
-    for i, col_name in enumerate(cols):
-        # Access the category list for this specific column
-        cats = enc.categories_[i]
-        max_idx = len(cats) - 1
-
-        # 2. Round, Fill, and Clip
-        # This ensures every single value is a valid integer index (0 to N)
-        col_idx = vals[:, i]
-        col_idx = np.round(col_idx)
-        col_idx = np.nan_to_num(col_idx, nan=0)  # Fallback to category 0 if NaN remains
-        col_idx = np.clip(col_idx, 0, max_idx).astype(int)
-
-        # 3. Direct Lookup (Manual Inverse Transform)
-        # We use numpy indexing to pull the strings directly.
-        # This cannot produce NaNs unless the category list itself contains them.
-        predicted_strings = cats[col_idx]
-
-        decoded_series.append(pl.Series(col_name, predicted_strings))
-
-    # 4. Return dataframe with the float columns replaced by string columns
-    return df.with_columns(decoded_series)
-
-
 def impute_by_group(
         train_df: pl.DataFrame,
         test_df: pl.DataFrame,
