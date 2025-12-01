@@ -7,12 +7,12 @@ class AutoEncoder(nn.Module):
         super().__init__()
         self.encoder = nn.Sequential(
             nn.Linear(input_dim, 64),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(inplace=True),
             nn.Linear(64, encoding_dim),
         )
         self.decoder = nn.Sequential(
             nn.Linear(encoding_dim, 64),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(inplace=True),
             nn.Linear(64, input_dim),
             # No activation on final layer for reconstruction (MSE loss expects raw values)
         )
