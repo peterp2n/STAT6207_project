@@ -82,7 +82,7 @@ if __name__ == "__main__":
         final_df = isbn_df.hstack(embeddings_df)
 
         # 4. Save single CSV with BOM
-        output_csv = embeddings_path / "embeddings.csv"
+        output_csv = embeddings_path / "text_embeddings.csv"
         final_df.write_csv(output_csv, include_bom=True)
 
         print(f"\nAll embeddings saved to {output_csv}")
