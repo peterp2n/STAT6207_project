@@ -21,7 +21,7 @@ from PIL import Image
 
 # ========================== Configuration ==========================
 INPUT_ROOT = Path("data") / "images" / "success"                    # ISBN folders with .jpg files
-OUTPUT_DIR = Path("data") / "images" / "embeddings"           # Final CSV will be saved here
+OUTPUT_DIR = Path("data")           # Final CSV will be saved here
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)     # pathlib version of os.makedirs
 
 

@@ -26,7 +26,7 @@ if __name__ == "__main__":
     # merge_desc.write_csv(Path("data") / "merge_desc.csv", include_bom=True)
 
 
-    embeddings_path = Path("data") / "text" / "embeddings"
+    embeddings_path = Path("data")
     embeddings_path.mkdir(parents=True, exist_ok=True)
 
     # Containers for batch collection
