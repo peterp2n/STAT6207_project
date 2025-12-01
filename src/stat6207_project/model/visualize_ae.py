@@ -10,12 +10,13 @@ from scipy.spatial.distance import pdist  # Added import
 
 from autoencoder import AutoEncoder  # Assuming this is your module
 
+
 def visualize_isbn_group(
         df: pl.DataFrame,
         isbn_list: Optional[Union[str, List[str]]] = None,
         weights_path: str = "ae_results/encoder_weights.pth",
         num_background: int = 2000,
-        method: str = "tsne",  # 'tsne' or 'pca'
+        method: str = "tsne",
         perplexity: int = 30,
         random_state: int = 42,
         title_prefix: str = "Autoencoder Latent Space",
@@ -24,56 +25,48 @@ def visualize_isbn_group(
         compute_distances: bool = True,
         save_path: Optional[str] = None,
 ):
-    """
-    Visualize one or more ISBN groups in the autoencoder's 32D latent space → 2D.
-    Fully Polars-native. Perfect for checking: "Are different quarters of the same book close together?"
-
-    Args:
-        df (pl.DataFrame): Feature DataFrame with 'isbn' column + 62 numeric features.
-        isbn_list (str | list[str] | None): ISBN(s) to highlight. If None → only background.
-        weights_path (str): Path to saved encoder weights.
-        num_background (int): Number of random background points.
-        method (str): 'tsne' or 'pca'.
-        perplexity (int): For t-SNE; auto-adjusted if too large.
-        random_state (int): For reproducibility.
-        title_prefix (str): Plot title prefix.
-        marker_size (int): Size of highlighted points.
-        connect_same_isbn (bool): Draw lines connecting quarters of the same ISBN.
-        compute_distances (bool): Print Euclidean distances in 32D space.
-        save_path (Optional[str]): If provided, save plot to this file.
-
-    Raises:
-        ValueError: If DataFrame lacks 'isbn' or features, or invalid method.
-        FileNotFoundError: If weights_path doesn't exist.
-
-    Example:
-        df_train = pl.read_csv("data/X_train_with_isbn.csv")
-        visualize_isbn_group(df_train, isbn_list="9782764351444")
-        # Compare two similar board books
-        visualize_isbn_group(df_train, isbn_list=["9782764351444", "9782764334591"], method="pca")
-    """
     if "isbn" not in df.columns:
         raise ValueError("DataFrame must contain 'isbn' column")
-    if len(df.columns) < 2:
-        raise ValueError("DataFrame must have at least one feature column besides 'isbn'")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Load encoder
+    # === DYNAMICALLY INFER INPUT DIM FROM SAVED ENCODER WEIGHTS ===
     try:
-        model = AutoEncoder(input_dim=62, encoding_dim=32)
-        model.encoder.load_state_dict(torch.load(weights_path, map_location=device))
-        model.eval()
-        model.to(device)
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Encoder weights not found at {weights_path}")
+        # Load only the state_dict to inspect architecture without knowing input_dim
+        state_dict = torch.load(weights_path, map_location=device)
+
+        # The first linear layer in encoder is Linear(input_dim → 64)
+        first_layer_weight = state_dict[list(state_dict.keys())[0]]  # e.g. "0.weight"
+        input_dim = first_layer_weight.shape[1]  # This is our true input dimension!
+
+        print(f"Detected encoder input dimension: {input_dim} features")
+    except Exception as e:
+        raise FileNotFoundError(f"Could not load or inspect encoder weights at {weights_path}: {e}")
+
+    # Now build the model with the correct (dynamic) input_dim
+    model = AutoEncoder(input_dim=input_dim, encoding_dim=32)
+    try:
+        model.encoder.load_state_dict(state_dict)
+    except Exception as e:
+        raise RuntimeError(f"Encoder architecture mismatch when loading weights: {e}")
+
+    model.eval()
+    model.to(device)
 
     # Extract features (exclude 'isbn')
     feature_cols = [col for col in df.columns if col != "isbn"]
-    if len(feature_cols) != 62:
-        warnings.warn(f"Expected 62 features, found {len(feature_cols)}. Proceeding anyway.")
+    actual_num_features = len(feature_cols)
 
-    features = df.select(feature_cols).to_numpy().astype(np.float32)  # (N, 62)
+    if actual_num_features != input_dim:
+        raise ValueError(
+            f"Feature count mismatch!\n"
+            f"   Model expects {input_dim} features, but DataFrame has {actual_num_features}.\n"
+            f"   Check your preprocessing pipeline or retrain the autoencoder."
+        )
+    else:
+        print(f"Perfect match: Data has {actual_num_features} features → matches model input dim")
+
+    features = df.select(feature_cols).to_numpy().astype(np.float32)  # (N, input_dim)
 
     # Handle ISBN list
     if isbn_list is not None:
