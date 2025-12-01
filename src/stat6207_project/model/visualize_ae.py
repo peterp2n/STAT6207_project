@@ -4,11 +4,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict
 import warnings
-from scipy.spatial.distance import pdist  # Added import
+from scipy.spatial.distance import pdist
 
-from autoencoder import AutoEncoder  # Assuming this is your module
+from autoencoder import AutoEncoder
+
+def get_device() -> torch.device:
+    """
+    Returns the best available device:
+      - Apple Silicon → mps  (Metal Performance Shaders – very fast for PyTorch)
+      - NVIDIA GPU    → cuda
+      - otherwise     → cpu
+    """
+    if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        # macOS 12.3+ with PyTorch ≥ 1.12 (or nightly ≥ 2.0)
+        return torch.device("mps")
+    elif torch.cuda.is_available():
+        return torch.device("cuda")
+    else:
+        return torch.device("cpu")
 
 
 def visualize_isbn_group(
@@ -28,7 +43,7 @@ def visualize_isbn_group(
     if "isbn" not in df.columns:
         raise ValueError("DataFrame must contain 'isbn' column")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
 
     # ------------------------------------------------------------
     # 1. Load the checkpoint and infer BOTH input_dim and encoding_dim
@@ -193,6 +208,71 @@ def visualize_isbn_group(
                       f"mean={dists.mean():.4f}, std={dists.std():.4f}, "
                       f"min={dists.min():.4f}, max={dists.max():.4f}")
 
+def get_normalized_embeddings_with_cosine(
+    df: pl.DataFrame,
+    isbn_list: Union[str, List[str]],
+    weights_path: str = "ae_results/encoder_weights.pth",
+) -> Dict[str, tuple[torch.Tensor, torch.Tensor]]:
+    """
+    Returns for each ISBN:
+        - embeddings: torch.Tensor of shape (num_quarters, encoding_dim), L2-normalized rows
+        - cosine_sim: torch.Tensor of shape (num_quarters, num_quarters), cosine similarity between all quarters
+
+    Because rows are unit-normalized → cosine similarity = dot product → X @ X.T
+    """
+    if "isbn" not in df.columns:
+        raise ValueError("DataFrame must contain 'isbn' column")
+
+    if isinstance(isbn_list, str):
+        isbn_list = [isbn_list]
+    isbn_list = [str(isbn) for isbn in isbn_list]
+
+    filtered = df.filter(pl.col("isbn").is_in(isbn_list))
+    if filtered.is_empty():
+        warnings.warn("No matching quarters found for the given ISBNs.")
+        return {}
+
+    device = get_device()
+    print(f"Running on: {device}")
+
+    # === Auto-detect input_dim and encoding_dim from saved weights ===
+    state_dict = torch.load(weights_path, map_location=device)
+    input_dim = state_dict["0.weight"].shape[1]  # first layer: [64, input_dim]
+    # find last Linear layer going into bottleneck
+    encoding_dim = next(v.shape[0] for k, v in state_dict.items() if k.endswith(".weight") and v.shape[1] == 64)
+    print(f"Detected: input_dim={input_dim}, encoding_dim={encoding_dim}")
+
+    # Build and load encoder
+    model = AutoEncoder(input_dim=input_dim, encoding_dim=encoding_dim)
+    model.encoder.load_state_dict(state_dict)
+    model.eval()
+    model.to(device)
+
+    feature_cols = [c for c in df.columns if c != "isbn"]
+    if len(feature_cols) != input_dim:
+        raise ValueError(f"Feature mismatch: model expects {input_dim}, got {len(feature_cols)}")
+
+    result = {}
+
+    for isbn in isbn_list:
+        group = filtered.filter(pl.col("isbn") == isbn)
+        if group.is_empty():
+            warnings.warn(f"ISBN {isbn} has no data — skipping")
+            continue
+
+        X = torch.tensor(group.select(feature_cols).to_numpy(), dtype=torch.float32, device=device)
+
+        with torch.no_grad():
+            Z = model.encode(X)                              # (T, D)
+            Z = torch.nn.functional.normalize(Z, p=2, dim=1)  # L2 normalize → unit rows
+
+        # Cosine similarity matrix via matmul (super fast on GPU/MPS)
+        cosine_sim_matrix = Z @ Z.T  # (T, T) — each entry is cosine similarity
+
+        result[isbn] = (Z.cpu(), cosine_sim_matrix.cpu())  # move to CPU only at the end
+
+    return result
+
 if __name__ == "__main__":
     print("Loading data with ISBNs...")
     df_train = pl.read_csv("data/X_train_with_isbn.csv", schema_overrides={"isbn": pl.Utf8})
@@ -239,3 +319,19 @@ if __name__ == "__main__":
     )
 
     print("\nDone! Check the ae_results/ folder for the two comparison plots.")
+
+    print("\nFetching normalized embeddings for sample board books:")
+    data = get_normalized_embeddings_with_cosine(
+        df_train,
+        ["9782764351444", "9782764349281", "9782764349298"]
+    )
+
+    for isbn, (emb_matrix, sim_matrix) in data.items():
+        T = emb_matrix.shape[0]
+        print(f"\nISBN: {isbn}")
+        print(f"  → {T} quarters → embedding matrix: {emb_matrix.shape}")
+        print(f"  → cosine sim matrix:      {sim_matrix.shape}")
+        print(f"  → diagonal (should be ~1.0): {sim_matrix.diag().min():.4f} – {sim_matrix.diag().max():.4f}")
+        print(f"  → sample similarities (rounded to 4 decimals):\n{torch.round(sim_matrix[:5, :5], decimals=4)}")
+
+    pass
