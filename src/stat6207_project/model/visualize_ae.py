@@ -30,41 +30,54 @@ def visualize_isbn_group(
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # === DYNAMICALLY INFER INPUT DIM FROM SAVED ENCODER WEIGHTS ===
+    # ------------------------------------------------------------
+    # 1. Load the checkpoint and infer BOTH input_dim and encoding_dim
+    # ------------------------------------------------------------
     try:
-        # Load only the state_dict to inspect architecture without knowing input_dim
         state_dict = torch.load(weights_path, map_location=device)
 
-        # The first linear layer in encoder is Linear(input_dim → 64)
-        first_layer_weight = state_dict[list(state_dict.keys())[0]]  # e.g. "0.weight"
-        input_dim = first_layer_weight.shape[1]  # This is our true input dimension!
+        # The encoder is a Sequential: Linear(in→64), ReLU, Linear(64→encoding_dim)
+        # The very last layer in the state_dict is the bottleneck layer
+        last_weight_key = None
+        for k in state_dict.keys():
+            if k.endswith(".weight") and state_dict[k].ndim == 2:
+                last_weight_key = k                     # e.g. "2.weight"
 
-        print(f"Detected encoder input dimension: {input_dim} features")
+        if last_weight_key is None:
+            raise RuntimeError("Could not find any Linear layer weights in the checkpoint.")
+
+        # Shape of the last Linear layer: [encoding_dim, 64]
+        encoding_dim = state_dict[last_weight_key].shape[0]
+
+        # First layer is Linear(input_dim → 64)
+        first_weight = state_dict[list(state_dict.keys())[0]]   # "0.weight"
+        input_dim = first_weight.shape[1]
+
+        print(f"Detected encoder architecture from checkpoint:")
+        print(f"   → input_dim    = {input_dim}")
+        print(f"   → encoding_dim = {encoding_dim}")
+
     except Exception as e:
-        raise FileNotFoundError(f"Could not load or inspect encoder weights at {weights_path}: {e}")
+        raise FileNotFoundError(f"Problem reading {weights_path}: {e}")
 
-    # Now build the model with the correct (dynamic) input_dim
-    model = AutoEncoder(input_dim=input_dim, encoding_dim=32)
-    try:
-        model.encoder.load_state_dict(state_dict)
-    except Exception as e:
-        raise RuntimeError(f"Encoder architecture mismatch when loading weights: {e}")
-
+    # ------------------------------------------------------------
+    # 2. Build the model with the CORRECT dimensions
+    # ------------------------------------------------------------
+    model = AutoEncoder(input_dim=input_dim, encoding_dim=encoding_dim)
+    model.encoder.load_state_dict(state_dict)   # now it will match perfectly
     model.eval()
     model.to(device)
 
-    # Extract features (exclude 'isbn')
-    feature_cols = [col for col in df.columns if col != "isbn"]
-    actual_num_features = len(feature_cols)
-
-    if actual_num_features != input_dim:
+    # ------------------------------------------------------------
+    # 3. Validate that the DataFrame has exactly the expected number of features
+    # ------------------------------------------------------------
+    feature_cols = [c for c in df.columns if c != "isbn"]
+    if len(feature_cols) != input_dim:
         raise ValueError(
             f"Feature count mismatch!\n"
-            f"   Model expects {input_dim} features, but DataFrame has {actual_num_features}.\n"
-            f"   Check your preprocessing pipeline or retrain the autoencoder."
+            f"   Model expects {input_dim} features, but DataFrame has {len(feature_cols)}.\n"
+            f"   Columns found (excluding isbn): {feature_cols}"
         )
-    else:
-        print(f"Perfect match: Data has {actual_num_features} features → matches model input dim")
 
     features = df.select(feature_cols).to_numpy().astype(np.float32)  # (N, input_dim)
 
