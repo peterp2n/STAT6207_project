@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
 """
 image_to_embeddings.py
-2025-ready, pathlib-only, zero deprecation warnings
-
-Extracts L2-normalized 2048-dim ResNet50 embeddings from book covers
-and saves them in the same format as your text pipeline:
-→ ./image_embeddings/embeddings.csv (isbn, dim_0, ..., dim_2047)
-
-Supports: MPS (Apple Silicon) > CUDA > CPU (automatic best device)
+→ Saves CSV with columns:  isbn, img0, img1, img2, ..., img2047
+Perfect match for your multimodal concat model!
 """
 
 from pathlib import Path
@@ -20,12 +15,12 @@ from PIL import Image
 
 
 # ========================== Configuration ==========================
-INPUT_ROOT = Path("data") / "images" / "success"                    # ISBN folders with .jpg files
-OUTPUT_DIR = Path("data")           # Final CSV will be saved here
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)     # pathlib version of os.makedirs
+INPUT_ROOT = Path("data") / "images" / "success"
+OUTPUT_DIR = Path("data")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ========================== Device Selection ==========================
+# ========================== Device ==========================
 def get_device() -> torch.device:
     if torch.backends.mps.is_available():
         return torch.device("mps")
@@ -34,116 +29,103 @@ def get_device() -> torch.device:
     else:
         return torch.device("cpu")
 
-
 device = get_device()
 print(f"Using device: {device}\n")
 
 
-# ========================== Model (modern weights) ==========================
-print("Loading ResNet50 with ImageNet weights...")
+# ========================== Model ==========================
+print("Loading ResNet50 (ImageNet)...")
 model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
-# Or use: weights=models.ResNet50_Weights.DEFAULT for the very latest
-
-# Remove final classification layer → 2048-dim global average pooled features
-model = torch.nn.Sequential(*list(model.children())[:-1])
+model = torch.nn.Sequential(*list(model.children())[:-1])  # remove classifier
 model.eval()
 
-# Use half precision on GPU/MPS for speed & lower memory
 if device.type != "cpu":
     model = model.half()
-
 model = model.to(device)
 
 
-# ====================== Preprocessing (no deprecated transforms) ======================
+# ========================== Preprocess ==========================
 preprocess = transforms.Compose([
     transforms.Resize(256, interpolation=transforms.InterpolationMode.BILINEAR),
     transforms.CenterCrop(224),
-    transforms.PILToTensor(),                      # PIL → torch.Tensor (uint8, CHW)
-    transforms.ConvertImageDtype(torch.float32),   # uint8 → float32 and divide by 255
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    ),
+    transforms.PILToTensor(),
+    transforms.ConvertImageDtype(torch.float32),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225]),
 ])
 
 
 def get_embedding(image_path: Path) -> np.ndarray:
-    """
-    Returns L2-normalized embedding as numpy array of shape (1, 2048).
-    """
     image = Image.open(image_path).convert("RGB")
-    tensor = preprocess(image).unsqueeze(0).to(device)   # (1, 3, 224, 224)
-
+    tensor = preprocess(image).unsqueeze(0).to(device)
     if device.type != "cpu":
-        tensor = tensor.half()   # match model precision
+        tensor = tensor.half()
 
     with torch.no_grad():
         emb = model(tensor)                    # (1, 2048, 1, 1)
         emb = torch.flatten(emb, 1)            # (1, 2048)
         emb = F.normalize(emb, p=2, dim=1)     # L2 normalize
+    return emb.cpu().numpy()                   # (1, 2048)
 
-    return emb.cpu().numpy()                   # (1, 2048) numpy array
 
-
-# ========================= Main Processing =========================
+# ========================== Main ==========================
 def main() -> None:
     if not INPUT_ROOT.exists() or not any(INPUT_ROOT.iterdir()):
-        print(f"Error: Directory '{INPUT_ROOT}' does not exist or is empty.")
+        print(f"Error: '{INPUT_ROOT}' is empty or does not exist.")
         return
 
-    isbn_list: list[str] = []
-    embedding_arrays: list[np.ndarray] = []
+    isbn_list = []
+    embedding_list = []
 
-    print("Starting image embedding extraction...\n")
-
-    # Sorted for reproducible order
+    print("Extracting image embeddings...\n")
     for isbn_folder in sorted(INPUT_ROOT.iterdir()):
         if not isbn_folder.is_dir():
             continue
-
         isbn = isbn_folder.name
-
-        # Validate ISBN-13
         if not (isbn.isdigit() and len(isbn) == 13):
-            print(f"Skipping non-ISBN folder: {isbn}")
             continue
 
-        image_path = isbn_folder / f"{isbn}.jpg"
-        if not image_path.is_file():
-            print(f"Missing image: {image_path}")
+        img_path = isbn_folder / f"{isbn}.jpg"
+        if not img_path.is_file():
+            print(f"Missing: {img_path}")
             continue
 
         try:
-            print(f"Processing {isbn} ...")
-            emb_np = get_embedding(image_path)
+            print(f"Processing {isbn}")
+            emb = get_embedding(img_path)           # (1, 2048)
             isbn_list.append(isbn)
-            embedding_arrays.append(emb_np)
+            embedding_list.append(emb)
         except Exception as e:
             print(f"Failed {isbn}: {e}")
 
-    # ========================= Batch Save (identical to text pipeline) =========================
-    if isbn_list:
-        # ISBN column
-        isbn_df = pl.DataFrame({"isbn": isbn_list})
+    if not isbn_list:
+        print("No images processed.")
+        return
 
-        # Stack all embeddings → (n, 2048)
-        embeddings_np = np.vstack(embedding_arrays)
-        dim_columns = [f"dim_{i}" for i in range(2048)]
-        embeddings_df = pl.DataFrame(embeddings_np, schema=dim_columns)
+    # Stack embeddings → (N, 2048)
+    embeddings_np = np.vstack(embedding_list)           # shape (N, 2048)
 
-        # Combine and save
-        final_df = isbn_df.hstack(embeddings_df)
-        output_csv = OUTPUT_DIR / "images_embeddings.csv"
-        final_df.write_csv(output_csv, include_bom=True)
+    # Create column names: img0, img1, ..., img2047
+    img_columns = [f"img{i}" for i in range(2048)]
 
-        print("\n" + "="*60)
-        print(f"Success! Processed {len(isbn_list)} images")
-        print(f"L2-normalized ResNet50 embeddings saved to:")
-        print(f"   {output_csv.resolve()}")
-        print(f"Shape: {final_df.shape} (rows × columns)")
-    else:
-        print("No images were successfully processed.")
+    # Build final Polars DataFrame
+    final_df = (
+        pl.DataFrame({"isbn": isbn_list})
+        .with_columns(pl.from_numpy(embeddings_np, schema=img_columns))
+    )
+
+    # Ensure isbn is first, then img0..img2047
+    final_df = final_df.select(["isbn"] + img_columns)
+
+    # Save
+    output_path = OUTPUT_DIR / "images_embeddings.csv"
+    final_df.write_csv(output_path, include_bom=True)
+
+    print("\n" + "="*70)
+    print(f"Done! {len(isbn_list)} books processed")
+    print(f"Saved → {output_path.resolve()}")
+    print(f"Shape : {final_df.shape}  →  columns: isbn, img0, img1, ..., img2047")
+    print("="*70)
 
 
 if __name__ == "__main__":

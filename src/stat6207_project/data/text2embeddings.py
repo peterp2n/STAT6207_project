@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+"""
+text_to_embeddings.py
+→ Saves: isbn, text0, text1, text2, ..., text383
+Perfect symmetry with your image script (img0, img1, ...)
+"""
+
 import polars as pl
 import numpy as np
 import torch
@@ -8,84 +15,95 @@ from pathlib import Path
 
 # Mean Pooling - Take attention mask into account for correct averaging
 def mean_pooling(model_output, attention_mask):
-    token_embeddings = model_output[0]  # First element of model_output contains all token embeddings
+    token_embeddings = model_output[0]  # First element contains all token embeddings
     input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
     return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 
 if __name__ == "__main__":
-
-    # Load model from HuggingFace Hub
+    print("Loading tokenizer & model: sentence-transformers/all-MiniLM-L6-v2 (384-dim)\n")
     tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
     model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
 
+    # Optional: move to GPU/MPS if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    model = model.to(device)
+    print(f"Using device: {device}\n")
+
+    # Load descriptions
     merge_desc = (
         pl.read_csv(Path("data") / "merged.csv", schema_overrides={"isbn": pl.Utf8})
         .select(["isbn", "description"])
+        .fill_null("")  # Treat null descriptions as empty string
     )
     # merge_desc.write_csv(Path("data") / "merge_desc.csv", include_bom=True)
 
+    print(f"Found {len(merge_desc):,} books with descriptions\n")
 
-    embeddings_path = Path("data")
-    embeddings_path.mkdir(parents=True, exist_ok=True)
+    isbn_list = []
+    embedding_arrays = []
 
-    # Containers for batch collection
-    isbn_list = []          # Will become (n, 1) DataFrame
-    embedding_arrays = []   # List of (1, 384) numpy arrays → later vstack
+    print("Starting text embedding extraction...\n")
 
     for row in merge_desc.iter_rows(named=True):
-        isbn = row.get("isbn")
-        description = row.get("description", "")
+        isbn = row["isbn"]
+        description = row["description"]
 
-        # Skip if description or isbn is null/empty
-        if not description or not isbn:
-            print(f"ISBN {isbn}: Skipping (description is null/empty)")
+        if not description.strip():  # Skip empty or whitespace-only
+            print(f"Skipping {isbn} → empty description")
             continue
 
-        # Tokenize sentences
-        encoded_input = tokenizer(description, padding=True, truncation=True, return_tensors='pt')
+        # Tokenize
+        encoded = tokenizer(
+            description,
+            padding=True,
+            truncation=True,
+            max_length=512,
+            return_tensors='pt'
+        ).to(device)
 
-        # Compute token embeddings
+        # Forward pass
         with torch.no_grad():
-            model_output = model(**encoded_input)
+            output = model(**encoded)
 
-        # Perform pooling
-        sentence_embeddings = mean_pooling(model_output, encoded_input['attention_mask'])
+        # Mean pooling + L2 normalization
+        sentence_emb = mean_pooling(output, encoded['attention_mask'])
+        sentence_emb = F.normalize(sentence_emb, p=2, dim=1)  # (1, 384)
 
-        # Normalize embeddings
-        sentence_embeddings = F.normalize(sentence_embeddings, p=2, dim=1)
+        # To numpy
+        emb_np = sentence_emb.cpu().numpy()  # shape (1, 384)
 
-        # Convert to numpy (shape: (1, 384))
-        embedding_np = sentence_embeddings.cpu().numpy()
-
-        # Collect for later batch save
         isbn_list.append(isbn)
-        embedding_arrays.append(embedding_np)
+        embedding_arrays.append(emb_np)
 
-        print(f"Processed ISBN {isbn}: shape {embedding_np.shape}")
+        print(f"Processed {isbn}: {emb_np.shape}")
 
-    # ------------------------------------------------------------------
-    # Batch saving logic (replaces the previous per-row saving)
-    # ------------------------------------------------------------------
-    if isbn_list:  # Only proceed if we have at least one valid row
-        # 1. ISBN column as (n, 1) Polars DataFrame
-        isbn_df = pl.DataFrame({"isbn": isbn_list})
+    # ========================= Batch Save with text0, text1, ... =========================
+    if isbn_list:
+        print(f"\nSaving {len(isbn_list)} embeddings...")
 
-        # 2. Vertically stack all embeddings → (n, 384) numpy array
-        embeddings_stacked = np.vstack(embedding_arrays)  # shape: (n, 384)
+        # Stack all embeddings → (N, 384)
+        embeddings_stacked = np.vstack(embedding_arrays)
 
-        # Convert stacked embeddings to Polars DataFrame with generic column names
-        embedding_cols = [f"dim_{i}" for i in range(embeddings_stacked.shape[1])]
-        embeddings_df = pl.DataFrame(embeddings_stacked, schema=embedding_cols)
+        # Create column names: text0, text1, ..., text383
+        text_columns = [f"text{i}" for i in range(384)]
 
-        # 3. Horizontally concatenate isbn with embeddings
-        final_df = isbn_df.hstack(embeddings_df)
+        # Build final Polars DataFrame
+        final_df = (
+            pl.DataFrame({"isbn": isbn_list})
+            .with_columns(pl.from_numpy(embeddings_stacked, schema=text_columns))
+            .select(["isbn"] + text_columns)  # enforce order
+        )
 
-        # 4. Save single CSV with BOM
-        output_csv = embeddings_path / "text_embeddings.csv"
-        final_df.write_csv(output_csv, include_bom=True)
+        # Save
+        output_path = Path("data") / "text_embeddings.csv"
+        final_df.write_csv(output_path, include_bom=True)
 
-        print(f"\nAll embeddings saved to {output_csv}")
-        print(f"Final shape: {final_df.shape} (rows, columns)")
+        print("\n" + "="*70)
+        print(f"SUCCESS! Text embeddings saved")
+        print(f"→ {output_path.resolve()}")
+        print(f"→ Shape: {final_df.shape} → columns: isbn, text0, text1, ..., text383")
+        print(f"→ L2-normalized, ready for multimodal concat")
+        print("="*70)
     else:
-        print("No valid descriptions found. Nothing was saved.")
+        print("No valid descriptions found. Nothing saved.")
