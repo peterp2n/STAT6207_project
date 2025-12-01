@@ -1,4 +1,3 @@
-# train.py
 import torch
 import numpy as np
 from pathlib import Path
@@ -48,9 +47,9 @@ trainer = AutoEncoderTrainer(
 trainer.train(
     train_data=X_train,
     val_data=X_val,           # Now we have validation!
-    epochs=300,
+    epochs=120,
     batch_size=32,
-    print_every=20
+    print_every=10
 )
 
 # -------------------------------
