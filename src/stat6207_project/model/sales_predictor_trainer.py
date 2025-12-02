@@ -32,7 +32,8 @@ class SalesPredictorTrainer:
         ).to(self.device)
 
         self.criterion = nn.MSELoss()
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        self.lr = lr
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.lr, weight_decay=weight_decay)
 
         self.train_losses: List[float] = []
         self.val_losses: List[float] = []
@@ -72,7 +73,13 @@ class SalesPredictorTrainer:
             print_every: int = 10
     ):
         best_val = float('inf')
+        best_epoch = 0
         wait = 0
+        best_filepath = None  # Will hold Path to the current best model file
+
+        # Make sure folder exists
+        save_dir = Path("sales_results")
+        save_dir.mkdir(parents=True, exist_ok=True)
 
         for epoch in range(1, epochs + 1):
             train_loss = self._train_epoch(train_loader)
@@ -81,32 +88,51 @@ class SalesPredictorTrainer:
             self.train_losses.append(train_loss)
             self.val_losses.append(val_loss)
 
-            # prev_lr = self.optimizer.param_groups[0]['lr']
-            # current_lr = self.optimizer.param_groups[0]['lr']
-            # if current_lr < prev_lr:
-            #     print(f"Epoch {epoch}: Reducing LR from {prev_lr:.2e} to {current_lr:.2e}")
-
             if epoch % print_every == 0 or epoch == epochs:
                 print(f"Epoch {epoch:3d} | Train MSE: {train_loss:.6f} | Val MSE: {val_loss:.6f}")
 
-            # Early stopping + save best
+            # === Save only the SINGLE best model (with dynamic name) ===
             if val_loss < best_val - 1e-5:
                 best_val = val_loss
+                best_epoch = epoch
                 wait = 0
-                torch.save(self.model.state_dict(), "sales_results/sales_predictor_best.pth")
+
+                # Build dynamic filename
+                new_filepath = save_dir / f"sales_predictor_best_epoch_{epoch}_lr_{self.lr:.0e}_bs_{train_loader.batch_size}.pth"
+
+                # Delete previous best file if exists
+                if best_filepath is not None and best_filepath.exists():
+                    best_filepath.unlink()
+                    print(f"  (Replaced old best: {best_filepath.name})")
+
+                # Save new best
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'val_loss': best_val,
+                    'lr': self.lr,
+                    'batch_size': train_loader.batch_size,
+                }, new_filepath)
+
+                best_filepath = new_filepath
+                print(f"  New best model saved: {new_filepath.name} | Val MSE: {best_val:.6f}")
+
             else:
                 wait += 1
                 if wait >= patience:
-                    print(f"Early stopping at epoch {epoch}")
+                    print(f"\nEarly stopping at epoch {epoch}")
+                    print(f"Best model was at epoch {best_epoch} with Val MSE: {best_val:.6f}")
                     break
 
-        # Load best model only if it exists
-        weights_path = Path("sales_results/sales_predictor_best.pth")
-        if weights_path.exists():
-            self.model.load_state_dict(torch.load(weights_path))
-            print(f"Best validation MSE: {best_val:.6f}")
+        # === Load the best (and only) saved model ===
+        if best_filepath and best_filepath.exists():
+            checkpoint = torch.load(best_filepath, map_location=self.device)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            print(f"\nBest model loaded: {best_filepath.name}")
+            print(f"   Epoch {checkpoint['epoch']} | Val MSE: {checkpoint['val_loss']:.6f}")
         else:
-            print(f"Warning: Best model weights not found at {weights_path}. Using the last trained model state.")
+            print("\nNo best model found — using final weights.")
 
     def predict(self, loader: DataLoader) -> np.ndarray:
         self.model.eval()
