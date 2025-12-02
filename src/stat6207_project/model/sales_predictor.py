@@ -5,52 +5,35 @@ import torch.nn as nn
 class SalesPredictor(nn.Module):
     def __init__(
         self,
-        encoded_embedding_dim: int,
-        text_embedding_dim: int,
-        image_embedding_dim: int,
-        dropout: float = 0.3
+        encoded_dim: int = 32,
+        text_dim: int = 384,
+        image_dim: int = 2048,
+        dropout: float = 0.2
     ):
         super().__init__()
+        total_dim = encoded_dim + text_dim + image_dim
 
-        # Total dimension after simple concatenation
-        input_dim = encoded_embedding_dim + text_embedding_dim + image_embedding_dim
+        self.net = nn.Sequential(
+            nn.Linear(total_dim, 512),
+            nn.BatchNorm1d(512),
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.Dropout(dropout),
 
-        # Exact same architecture pattern as your AutoEncoder's encoder + decoder
-        # but ending with output dim = 1 (regression)
-        self.regressor = nn.Sequential(
-            nn.Linear(input_dim, 256),   # same as AE: input → 64
-            nn.LeakyReLU(inplace=True),
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.Dropout(dropout),
 
             nn.Linear(256, 128),
-            nn.LeakyReLU(inplace=True),
-            nn.Dropout(dropout),
+            nn.BatchNorm1d(128),
+            nn.LeakyReLU(0.1, inplace=True),
 
             nn.Linear(128, 64),
-            nn.LeakyReLU(inplace=True),
-            nn.Dropout(dropout),
+            nn.LeakyReLU(0.1, inplace=True),
 
-            nn.Linear(64, 32),
-            nn.LeakyReLU(inplace=True),
-            nn.Dropout(dropout),
-
-            nn.Linear(32, 1)            # final output: predict sales (Next_Q1_log1p)
+            nn.Linear(64, 1)   # predicts Next_Q1_log1p directly
         )
 
-        # Optional dropout if you want (you can insert it later)
-        self.dropout = nn.Dropout(dropout)
-
-
-    def forward(
-        self,
-        encoded_emb: torch.Tensor,  # shape: (batch_size, encoded_embedding_dim)  # unused for now
-        text_emb: torch.Tensor,    # shape: (batch_size, text_embedding_dim)
-        image_emb: torch.Tensor    # shape: (batch_size, image_embedding_dim)
-    ) -> torch.Tensor:
-
-        # Concatenate the two pre-computed embeddings
-        x = torch.cat([encoded_emb, text_emb, image_emb], dim=1)   # → (batch_size, input_dim)
-
-        # Same style as your autoencoder: two linear + LeakyReLU, but final dim=1
-        x = self.regressor(x)
-
-        return x   # → (batch_size, 1)
+    def forward(self, encoded_emb: torch.Tensor, text_emb: torch.Tensor, image_emb: torch.Tensor):
+        x = torch.cat([encoded_emb, text_emb, image_emb], dim=1)
+        return self.net(x).squeeze(-1)  # (batch_size,)
