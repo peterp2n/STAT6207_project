@@ -1,83 +1,59 @@
-# prepare_multimodal_polars.py
 import polars as pl
-import numpy as np
 from pathlib import Path
 
-# --------------------------------------------------------------
 data_folder = Path("data")
-data_folder.mkdir(parents=True, exist_ok=True)
 
-print("Loading data from ./data/ using Polars...\n")
+# Load everything
+df_text  = pl.read_csv(data_folder / "text_embeddings.csv", schema_overrides={"isbn": pl.Utf8})
+df_img   = pl.read_csv(data_folder / "images_embeddings.csv", schema_overrides={"isbn": pl.Utf8})
+df_train = pl.read_csv(data_folder / "X_train_with_isbn.csv", schema_overrides={"isbn": pl.Utf8})
+df_test  = pl.read_csv(data_folder / "X_test_with_isbn.csv", schema_overrides={"isbn": pl.Utf8})
 
-# Load all files
-text_emb = pl.read_csv(data_folder / "text_embeddings.csv", dtypes={"isbn": pl.Utf8})
-img_emb  = pl.read_csv(data_folder / "images_embeddings.csv", dtypes={"isbn": pl.Utf8})
-X_train  = pl.read_csv(data_folder / "X_train_with_isbn.csv", dtypes={"isbn": pl.Utf8})
-X_test   = pl.read_csv(data_folder / "X_test_with_isbn.csv",  dtypes={"isbn": pl.Utf8})
-y_train  = pl.read_csv(data_folder / "y_train_with_isbn.csv", dtypes={"isbn": pl.Utf8})
-y_test   = pl.read_csv(data_folder / "y_test_with_isbn.csv",  dtypes={"isbn": pl.Utf8})
+# =============================================================================
+# CRITICAL FIX: Deduplicate text embeddings (mean pooling is safe & common)
+# =============================================================================
+print(f"Before deduplication - text_embeddings: {len(df_text)} rows, {df_text['isbn'].n_unique()} unique ISBNs")
 
-print(f"Rows before inner join:")
-print(f"   X_train : {len(X_train):,}")
-print(f"   X_test  : {len(X_test):,}")
-print(f"   Text emb ISBNs : {text_emb['isbn'].n_unique()}")
-print(f"   Img  emb ISBNs : {img_emb['isbn'].n_unique()}")
-
-# INNER JOIN → keep only rows that have text + image embeddings
-train_merged = X_train.join(text_emb, on="isbn", how="inner").join(img_emb, on="isbn", how="inner")
-test_merged  = X_test.join(text_emb,  on="isbn", how="inner").join(img_emb,  on="isbn", how="inner")
-
-print(f"\nAfter clean inner join:")
-print(f"   Train rows : {len(train_merged):,}  ({len(train_merged)/len(X_train):.3%})")
-print(f"   Test  rows : {len(test_merged):,}   ({len(test_merged)/len(X_test):.3%})")
-
-# --------------------------------------------------------------
-# CRITICAL FIX: align y exactly with the (now possibly reordered) feature tables
-# --------------------------------------------------------------
-# 1. Get the ISBN order from the merged feature tables
-train_isbn_order = train_merged["isbn"]
-test_isbn_order  = test_merged["isbn"]
-
-# 2. Re-order y to match that exact order
-y_train_aligned = (
-    y_train
-    .filter(pl.col("isbn").is_in(train_isbn_order))
-    .join(pl.DataFrame({"isbn": train_isbn_order}), on="isbn", how="inner")
+df_text = (
+    df_text
+    .group_by("isbn")
+    .agg([
+        # Mean over duplicate embeddings → robust and preserves semantics
+        pl.col("^dim_.*$").mean()
+    ])
+    .sort("isbn")  # optional: makes debugging easier
 )
 
-y_test_aligned = (
-    y_test
-    .filter(pl.col("isbn").is_in(test_isbn_order))
-    .join(pl.DataFrame({"isbn": test_isbn_order}), on="isbn", how="inner")
+print(f"After deduplication  - text_embeddings: {len(df_text)} rows (all unique)")
+
+# Images are already unique → just verify
+assert df_img["isbn"].is_duplicated().sum() == 0, "images_embeddings has duplicates!"
+
+# =============================================================================
+# Now safe left joins → order & row count 100% preserved
+# =============================================================================
+X_train_enriched = (
+    df_train
+    .join(df_text, on="isbn", how="left")
+    .join(df_img,  on="isbn", how="left", suffix="_img")
 )
 
-# Now the ISBN columns are guaranteed to be identical in order and content
-assert train_merged["isbn"].equals(y_train_aligned["isbn"]), "Train ISBNs misaligned!"
-assert test_merged["isbn"].equals(y_test_aligned["isbn"]),   "Test ISBNs misaligned!"
+X_test_enriched = (
+    df_test
+    .join(df_text, on="isbn", how="left")
+    .join(df_img,  on="isbn", how="left", suffix="_img")
+)
 
-print("ISBN alignment verified – perfect match!\n")
+# =============================================================================
+# These asserts will now PASS and are meaningful
+# =============================================================================
+assert len(X_train_enriched) == len(df_train)
+assert len(X_test_enriched)  == len(df_test)
+assert X_train_enriched["isbn"].to_list() == df_train["isbn"].to_list()
+assert X_test_enriched["isbn"].to_list()  == df_test["isbn"].to_list()
 
-# --------------------------------------------------------------
-# Convert to numpy (float32) for PyTorch
-# --------------------------------------------------------------
-X_train_np = train_merged.drop("isbn").to_numpy().astype(np.float32)
-X_test_np  = test_merged.drop("isbn").to_numpy().astype(np.float32)
+X_train_enriched.write_csv(data_folder / "X_train_enriched.csv", include_bom=True)
+X_test_enriched.write_csv(data_folder / "X_test_enriched.csv", include_bom=True)
 
-y_train_np = y_train_aligned["Next_Q1_log1p"].to_numpy().reshape(-1, 1).astype(np.float32)
-y_test_np  = y_test_aligned["Next_Q1_log1p"].to_numpy().reshape(-1, 1).astype(np.float32)
-
-# # --------------------------------------------------------------
-# # Save
-# # --------------------------------------------------------------
-# np.save(data_folder / "X_train_multimodal.npy", X_train_np)
-# np.save(data_folder / "X_test_multimodal.npy",  X_test_np)
-# np.save(data_folder / "y_train.npy", y_train_np)
-# np.save(data_folder / "y_test.npy",  y_test_np)
-#
-# print("Multimodal dataset ready!")
-# print(f"   Features dimension : {X_train_np.shape[1]}")
-# print(f"   Train samples      : {X_train_np.shape[0]:,}")
-# print(f"   Test samples       : {X_test_np.shape[0]:,}")
-# print(f"\nFiles saved to → {data_folder.resolve()}/")
-
-pass
+print(f"Success! X_train_enriched: {X_train_enriched.shape}")
+print(f"Success! X_test_enriched:  {X_test_enriched.shape}")
