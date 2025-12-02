@@ -123,13 +123,13 @@ if __name__ == "__main__":
     target_col = "Next_Q1_log1p"
 
     # --------------------------- Preprocess --------------------------------
-    X_train, X_test, _, _ = preprocess_data(books_df=df_books, sales_df=df_sales, test_size=0.2, random_state=42, shuffle=True)
+    train, test, _, scalar_sales = preprocess_data(books_df=df_books, sales_df=df_sales, test_size=0.2, random_state=42, shuffle=True)
 
     # Keep only the features we will actually train on
-    feats = [c for c in X_train.columns if c != target_col and c not in unwanted_cols]
+    feats = [c for c in train.columns if c != target_col and c not in unwanted_cols]
 
-    X_train_np = X_train.select(feats).to_numpy().astype(np.float32)
-    X_test_np = X_test.select(feats).to_numpy().astype(np.float32)
+    X_train_np = train.select(feats).to_numpy().astype(np.float32)
+    X_test_np = test.select(feats).to_numpy().astype(np.float32)
 
     # Check for NaNs/infs (add this for robustness)
     if np.any(np.isnan(X_train_np)) or np.any(np.isinf(X_train_np)):
@@ -164,33 +164,36 @@ if __name__ == "__main__":
     )
 
     # --------------------------- Get Cleaned DataFrames --------------------
-    X_train_clean = get_cleaned_dataframes(X_train, inlier_mask)
-    print(f"Cleaned training DataFrame shape: {X_train_clean.shape}")
+    train_undrop = get_cleaned_dataframes(train, inlier_mask)
+    print(f"Cleaned training DataFrame shape: {train_undrop.shape}")
+    train_undrop.write_csv(Path("data") / "train_all_cols.csv", include_bom=True)
+    train_drop = train.select(["isbn"] + feats + [target_col])
+    train_drop.write_csv(Path("data") / "train_features_target_only.csv", include_bom=True)
 
-    # --------------------------- Convert to PyTorch tensors ----------------
-    X_tensor, y_tensor, _ = to_tensors(
-        df=X_train_clean,
-        target_col=target_col,
-        drop_cols=unwanted_cols,
-    )
-
-    X_numpy = X_tensor.numpy()
-    y_numpy = y_tensor.numpy()
-
-    save_dir = Path("data")
-    # Save .npy (pure features/target numerics)
-    np.save(save_dir / "X_train.npy", X_numpy)
-    np.save(save_dir / "y_train.npy", y_numpy)
-    np.save(save_dir / "X_test.npy", X_test_np)
-    np.save(save_dir / "y_test.npy", X_test.select(target_col).to_numpy().astype(np.float32))
-
-    # Save CSVs with ISBN (features separate from target)
-
-    X_train_clean.select(["isbn"] + feats).write_csv(save_dir / "X_train_with_isbn.csv")  # ISBN + features
-    X_train_clean.select(["isbn", target_col]).write_csv(save_dir / "y_train_with_isbn.csv")  # ISBN + target
-    X_test.select(["isbn"] + feats).write_csv(save_dir / "X_test_with_isbn.csv")
-    X_test.select(["isbn", target_col]).write_csv(save_dir / "y_test_with_isbn.csv")
-
-    print("\nReady for training!")
-    print(f"   X_tensor shape : {X_tensor.shape}")
-    print(f"   y_tensor shape : {y_tensor.shape}")
+    # # --------------------------- Convert to PyTorch tensors ----------------
+    # X_tensor, y_tensor, _ = to_tensors(
+    #     df=train_undrop,
+    #     target_col=target_col,
+    #     drop_cols=unwanted_cols,
+    # )
+    #
+    # X_numpy = X_tensor.numpy()
+    # y_numpy = y_tensor.numpy()
+    #
+    # save_dir = Path("data")
+    # # Save .npy (pure features/target numerics)
+    # np.save(save_dir / "X_train.npy", X_numpy)
+    # np.save(save_dir / "y_train.npy", y_numpy)
+    # np.save(save_dir / "X_test.npy", X_test_np)
+    # np.save(save_dir / "y_test.npy", test.select(target_col).to_numpy().astype(np.float32))
+    #
+    # # Save CSVs with ISBN (features separate from target)
+    #
+    # train_clean.select(["isbn"] + feats).write_csv(save_dir / "X_train_with_isbn.csv")  # ISBN + features
+    # train_clean.select(["isbn", target_col]).write_csv(save_dir / "y_train_with_isbn.csv")  # ISBN + target
+    # test.select(["isbn"] + feats).write_csv(save_dir / "X_test_with_isbn.csv")
+    # test.select(["isbn", target_col]).write_csv(save_dir / "y_test_with_isbn.csv")
+    #
+    # print("\nReady for training!")
+    # print(f"   X_tensor shape : {X_tensor.shape}")
+    # print(f"   y_tensor shape : {y_tensor.shape}")
