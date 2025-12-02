@@ -166,9 +166,15 @@ if __name__ == "__main__":
     # --------------------------- Get Cleaned DataFrames --------------------
     train_undrop = get_cleaned_dataframes(train, inlier_mask)
     print(f"Cleaned training DataFrame shape: {train_undrop.shape}")
+
+    train_drop = train_undrop.select(["isbn"] + feats + [target_col])
+    test_drop = test.select(["isbn"] + feats + [target_col])
+
     train_undrop.write_csv(Path("data") / "train_all_cols.csv", include_bom=True)
-    train_drop = train.select(["isbn"] + feats + [target_col])
     train_drop.write_csv(Path("data") / "train_features_target_only.csv", include_bom=True)
+
+    test.write_csv(Path("data") / "test_all_cols.csv", include_bom=True)
+    test_drop.write_csv(Path("data") / "test_features_target_only.csv", include_bom=True)
 
     # # --------------------------- Convert to PyTorch tensors ----------------
     # X_tensor, y_tensor, _ = to_tensors(
