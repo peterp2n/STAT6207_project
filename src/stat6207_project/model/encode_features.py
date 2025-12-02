@@ -89,11 +89,5 @@ if __name__ == "__main__":
         input_dim=X_train_feats.to_numpy().shape[1]
     )
 
-    # test_ae_features = get_embeddings(
-    #     X=X_test_np,
-    #     weights_path="ae_results/encoder_weights.pth",
-    #     input_dim=X_train_np.shape[1]
-    # )
 
     print(train_ae_features.shape)  # → e.g. (45234, 32)
-    # print(test_ae_features.shape)
