@@ -47,7 +47,7 @@ if __name__ == "__main__":
     # Encode with trained autoencoder
     X_encoded = get_embeddings(
         X=X_feats_scaled.numpy(),
-        weights_path="ae_results/encoder_weights.pth",
+        weights_path="ae_results/encoder_weights.pth", # Load the encoder weights
         input_dim=X_feats_scaled.shape[1]
     )
 
