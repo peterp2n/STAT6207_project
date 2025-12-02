@@ -64,12 +64,12 @@ class SalesPredictorTrainer:
         return total_loss / len(loader.dataset)
 
     def train(
-        self,
-        train_loader: DataLoader,
-        val_loader: DataLoader,
-        epochs: int = 500,
-        patience: int = 30,
-        print_every: int = 10
+            self,
+            train_loader: DataLoader,
+            val_loader: DataLoader,
+            epochs: int = 500,
+            patience: int = 30,
+            print_every: int = 10
     ):
         best_val = float('inf')
         wait = 0
@@ -100,9 +100,13 @@ class SalesPredictorTrainer:
                     print(f"Early stopping at epoch {epoch}")
                     break
 
-        # Load best model
-        self.model.load_state_dict(torch.load("sales_results/sales_predictor_best.pth"))
-        print(f"Best validation MSE: {best_val:.6f}")
+        # Load best model only if it exists
+        weights_path = Path("sales_results/sales_predictor_best.pth")
+        if weights_path.exists():
+            self.model.load_state_dict(torch.load(weights_path))
+            print(f"Best validation MSE: {best_val:.6f}")
+        else:
+            print(f"Warning: Best model weights not found at {weights_path}. Using the last trained model state.")
 
     def predict(self, loader: DataLoader) -> np.ndarray:
         self.model.eval()
