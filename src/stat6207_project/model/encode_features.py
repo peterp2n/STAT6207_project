@@ -62,7 +62,7 @@ def get_embeddings(
         emb = encoder(batch)
         embeddings.append(emb.cpu())
 
-    return torch.cat(embeddings, dim=0).numpy()
+    return torch.cat(embeddings, dim=0)
 
 if __name__ == "__main__":
     data_folder = Path("data")
