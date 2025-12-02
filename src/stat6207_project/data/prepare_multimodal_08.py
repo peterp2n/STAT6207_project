@@ -6,31 +6,13 @@ data_folder = Path("data")
 # Load everything
 df_text  = (
     pl.read_csv(data_folder / "text_embeddings.csv", schema_overrides={"isbn": pl.Utf8})
-    .unique(subset=["isbn"])
 )
 df_img   = (
     pl.read_csv(data_folder / "images_embeddings.csv", schema_overrides={"isbn": pl.Utf8})
-    .unique(subset=["isbn"])
 )
-df_train = pl.read_csv(data_folder / "X_train_with_isbn.csv", schema_overrides={"isbn": pl.Utf8})
-df_test  = pl.read_csv(data_folder / "X_test_with_isbn.csv", schema_overrides={"isbn": pl.Utf8})
 
-# =============================================================================
-# CRITICAL FIX: Deduplicate text embeddings (mean pooling is safe & common)
-# =============================================================================
-print(f"Before deduplication - text_embeddings: {len(df_text)} rows, {df_text['isbn'].n_unique()} unique ISBNs")
-
-# df_text = (
-#     df_text
-#     .group_by("isbn")
-#     .agg([
-#         # Mean over duplicate embeddings → robust and preserves semantics
-#         pl.col("^dim_.*$").mean()
-#     ])
-#     .sort("isbn")  # optional: makes debugging easier
-# )
-
-print(f"After deduplication  - text_embeddings: {len(df_text)} rows (all unique)")
+train = pl.read_csv(data_folder / "train_features_target_only.csv", schema_overrides={"isbn": pl.Utf8})
+test = pl.read_csv(data_folder / "test_features_target_only.csv", schema_overrides={"isbn": pl.Utf8})
 
 # Images are already unique → just verify
 assert df_text["isbn"].is_duplicated().sum() == 0, "text_embeddings has duplicates!"
@@ -39,28 +21,20 @@ assert df_img["isbn"].is_duplicated().sum() == 0, "images_embeddings has duplica
 # =============================================================================
 # Now safe left joins → order & row count 100% preserved
 # =============================================================================
-X_train_enriched = (
-    df_train
+train_enriched = (
+    train
     .join(df_text, on="isbn", how="left")
-    .join(df_img,  on="isbn", how="inner")
+    .join(df_img,  on="isbn", how="left")
 )
 
-X_test_enriched = (
-    df_test
-    .join(df_text, on="isbn", how="inner")
-    .join(df_img,  on="isbn", how="inner")
+test_enriched = (
+    test
+    .join(df_text, on="isbn", how="left")
+    .join(df_img,  on="isbn", how="left")
 )
 
-# =============================================================================
-# These asserts will now PASS and are meaningful
-# =============================================================================
-# assert len(X_train_enriched) == len(df_train)
-# assert len(X_test_enriched)  == len(df_test)
-# assert X_train_enriched["isbn"].to_list() == df_train["isbn"].to_list()
-# assert X_test_enriched["isbn"].to_list()  == df_test["isbn"].to_list()
+train_enriched.write_csv(data_folder / "train_enriched.csv", include_bom=True)
+test_enriched.write_csv(data_folder / "test_enriched.csv", include_bom=True)
 
-X_train_enriched.write_csv(data_folder / "X_train_enriched.csv", include_bom=True)
-X_test_enriched.write_csv(data_folder / "X_test_enriched.csv", include_bom=True)
-
-print(f"Success! X_train_enriched: {X_train_enriched.shape}")
-print(f"Success! X_test_enriched:  {X_test_enriched.shape}")
+print(f"Success! X_train_enriched: {train_enriched.shape}")
+print(f"Success! X_test_enriched:  {test_enriched.shape}")
