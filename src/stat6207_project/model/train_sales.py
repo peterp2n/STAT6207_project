@@ -59,6 +59,12 @@ if __name__ == "__main__":
                                     generator=torch.Generator().manual_seed(42))
 
     batch_size = 64
+    epochs = 10
+    learning_rate = 1e-4
+    dropout = 0.2
+    patience = 30
+    print_every = 10
+
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=0, pin_memory=False)
     val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=False)
 
@@ -67,16 +73,16 @@ if __name__ == "__main__":
         encoded_dim=X_encoded.shape[1],
         text_dim=len(text_cols),
         image_dim=len(img_cols),
-        lr=1e-4,
-        dropout=0.2
+        lr=learning_rate,
+        dropout=dropout
     )
 
     trainer.train(
         train_loader=train_loader,
         val_loader=val_loader,
-        epochs=300,
-        patience=30,
-        print_every=10
+        epochs=epochs,
+        patience=patience,
+        print_every=print_every
     )
 
-    trainer.plot_losses(save_path=Path("sales_results/loss_curve.png"))
+    trainer.plot_losses(save_path=Path(f"sales_results/loss_curve_epoch_{epochs}_lr_{learning_rate}_bs_{batch_size}.png"))
