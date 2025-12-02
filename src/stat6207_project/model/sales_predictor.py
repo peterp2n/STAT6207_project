@@ -29,24 +29,27 @@ class SalesPredictor(nn.Module):
         # Total dimension after concatenation (dims unchanged)
         input_dim = encoded_dim + text_dim + image_dim
 
-        # Regressor (unchanged)
         self.regressor = nn.Sequential(
             nn.Linear(input_dim, 256),
+            nn.BatchNorm1d(256),
             nn.LeakyReLU(inplace=True),
 
             nn.Linear(256, 128),
+            nn.BatchNorm1d(128),
             nn.LeakyReLU(inplace=True),
             nn.Dropout(dropout),
 
             nn.Linear(128, 64),
+            nn.BatchNorm1d(64),
             nn.LeakyReLU(inplace=True),
             nn.Dropout(dropout),
 
             nn.Linear(64, 32),
+            nn.BatchNorm1d(32),
             nn.LeakyReLU(inplace=True),
             nn.Dropout(dropout),
 
-            nn.Linear(32, 1)  # final output: predict sales (Next_Q1_log1p)
+            nn.Linear(32, 1)
         )
 
     def forward(
