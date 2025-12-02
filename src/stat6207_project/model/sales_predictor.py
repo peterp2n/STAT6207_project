@@ -7,7 +7,6 @@ class SalesPredictor(nn.Module):
         self,
         text_embedding_dim: int,
         image_embedding_dim: int,
-        hidden_dim: int = 64,        # same intermediate size as your AE (64)
         dropout: float = 0.3
     ):
         super().__init__()
@@ -18,9 +17,22 @@ class SalesPredictor(nn.Module):
         # Exact same architecture pattern as your AutoEncoder's encoder + decoder
         # but ending with output dim = 1 (regression)
         self.regressor = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),   # same as AE: input → 64
+            nn.Linear(input_dim, 256),   # same as AE: input → 64
             nn.LeakyReLU(inplace=True),
-            nn.Linear(hidden_dim, 1)            # final output: predict sales (Next_Q1_log1p)
+
+            nn.Linear(256, 128),
+            nn.LeakyReLU(inplace=True),
+            nn.Dropout(dropout),
+
+            nn.Linear(128, 64),
+            nn.LeakyReLU(inplace=True),
+            nn.Dropout(dropout),
+
+            nn.Linear(64, 32),
+            nn.LeakyReLU(inplace=True),
+            nn.Dropout(dropout),
+
+            nn.Linear(32, 1)            # final output: predict sales (Next_Q1_log1p)
         )
 
         # Optional dropout if you want (you can insert it later)
@@ -35,9 +47,6 @@ class SalesPredictor(nn.Module):
 
         # Concatenate the two pre-computed embeddings
         x = torch.cat([text_emb, image_emb], dim=1)   # → (batch_size, input_dim)
-
-        # Optional dropout on concatenated features
-        x = self.dropout(x)
 
         # Same style as your autoencoder: two linear + LeakyReLU, but final dim=1
         x = self.regressor(x)
