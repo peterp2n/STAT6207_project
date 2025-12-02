@@ -67,16 +67,17 @@ def get_embeddings(
 if __name__ == "__main__":
     data_folder = Path("data")
 
-    X_train_enriched = pl.read_csv(data_folder / "X_train_enriched.csv", schema_overrides={"isbn": pl.Utf8})
-    X_test_enriched = pl.read_csv(data_folder / "X_test_enriched.csv", schema_overrides={"isbn": pl.Utf8})
+    train_enriched = pl.read_csv(data_folder / "train_enriched.csv", schema_overrides={"isbn": pl.Utf8})
+    test_enriched = pl.read_csv(data_folder / "test_enriched.csv", schema_overrides={"isbn": pl.Utf8})
 
+    target_col = "Next_Q1_log1p"
     img_cols = [f"img{i}" for i in range(2048)]
     text_cols = [f"text{i}" for i in range(384)]
-    feat_cols = [col for col in X_train_enriched.columns if col not in img_cols + text_cols + ["isbn"]]
+    feat_cols = [col for col in train_enriched.columns if col not in img_cols + text_cols + ["isbn", target_col]]
 
-    X_train_img = X_train_enriched.select(img_cols)
-    X_train_text = X_train_enriched.select(text_cols)
-    X_train_feats = X_train_enriched.select(feat_cols)
+    X_train_img = train_enriched.select(img_cols)
+    X_train_text = train_enriched.select(text_cols)
+    X_train_feats = train_enriched.select(feat_cols)
 
     X_train_img_tensor = torch.from_numpy(X_train_img.to_numpy()).float()
     X_train_text_tensor = torch.from_numpy(X_train_text.to_numpy()).float()
