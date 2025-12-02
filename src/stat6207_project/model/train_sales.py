@@ -58,7 +58,7 @@ if __name__ == "__main__":
     train_ds, val_ds = random_split(dataset, [len(dataset) - val_size, val_size],
                                     generator=torch.Generator().manual_seed(42))
 
-    batch_size = 128
+    batch_size = 64
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=0, pin_memory=False)
     val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=False)
 
@@ -67,14 +67,14 @@ if __name__ == "__main__":
         encoded_dim=X_encoded.shape[1],
         text_dim=len(text_cols),
         image_dim=len(img_cols),
-        lr=3e-4,
+        lr=1e-4,
         dropout=0.2
     )
 
     trainer.train(
         train_loader=train_loader,
         val_loader=val_loader,
-        epochs=50,
+        epochs=300,
         patience=30,
         print_every=10
     )
