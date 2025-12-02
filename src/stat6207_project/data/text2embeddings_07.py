@@ -93,6 +93,7 @@ if __name__ == "__main__":
             pl.DataFrame({"isbn": isbn_list})
             .with_columns(pl.from_numpy(embeddings_stacked, schema=text_columns))
             .select(["isbn"] + text_columns)  # enforce order
+            .unique(subset=["isbn"], keep="first")
         )
 
         # Save

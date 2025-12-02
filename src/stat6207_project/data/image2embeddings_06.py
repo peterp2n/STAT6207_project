@@ -112,6 +112,7 @@ def main() -> None:
     final_df = (
         pl.DataFrame({"isbn": isbn_list})
         .with_columns(pl.from_numpy(embeddings_np, schema=img_columns))
+        .unique(subset=["isbn"], keep="first")
     )
 
     # Ensure isbn is first, then img0..img2047
