@@ -6,7 +6,7 @@ import polars as pl
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 
-from encode_features import get_embeddings
+from encode_features import get_ae_embeddings
 from sales_predictor_trainer import SalesPredictorTrainer
 
 # Simple dataset (same as before, but minimal)
@@ -40,15 +40,15 @@ if __name__ == "__main__":
     X_feats = torch.from_numpy(df.select(feat_cols).to_numpy()).float()
     y       = torch.from_numpy(df["Next_Q1_log1p"].to_numpy()).float()
 
-    # Scale structured features (must match AE training!)
-    scaler = StandardScaler()
-    X_feats_scaled = torch.from_numpy(scaler.fit_transform(X_feats.numpy())).float()
+    # # Scale structured features (must match AE training!)
+    # scaler = StandardScaler()
+    # X_feats_scaled = torch.from_numpy(scaler.fit_transform(X_feats.numpy())).float()
 
     # Encode with trained autoencoder
-    X_encoded = get_embeddings(
-        X=X_feats_scaled.numpy(),
+    X_encoded = get_ae_embeddings(
+        X=X_feats.numpy(),
         weights_path="ae_results/encoder_weights.pth", # Load the encoder weights
-        input_dim=X_feats_scaled.shape[1]
+        input_dim=X_feats.shape[1]
     )
 
     # Dataset + split
@@ -58,8 +58,8 @@ if __name__ == "__main__":
     train_ds, val_ds = random_split(dataset, [len(dataset) - val_size, val_size],
                                     generator=torch.Generator().manual_seed(42))
 
-    batch_size = 64
-    epochs = 10
+    batch_size = 32
+    epochs = 1000
     learning_rate = 1e-4
     dropout = 0.2
     patience = 30
