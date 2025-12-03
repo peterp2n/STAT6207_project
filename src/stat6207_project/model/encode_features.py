@@ -9,7 +9,7 @@ from typing import Union
 
 
 @torch.no_grad()
-def get_embeddings(
+def get_ae_embeddings(
         X: Union[torch.Tensor, np.ndarray],
         weights_path: Union[str, Path],
         input_dim: int,
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     X_train_feats_tensor = torch.from_numpy(X_train_feats.to_numpy()).float()
 
     # One-liner → get compressed 32-dim features instantly
-    train_ae_features = get_embeddings(
+    train_ae_features = get_ae_embeddings(
         X=X_train_feats.to_numpy(),
         weights_path="ae_results/encoder_weights.pth",
         input_dim=X_train_feats.to_numpy().shape[1]
