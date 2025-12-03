@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-class SalesPredictor(nn.Module):
+class SalesPredictorSim(nn.Module):
     def __init__(
         self,
         encoded_dim: int = 32,
