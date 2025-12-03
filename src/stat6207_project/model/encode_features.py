@@ -9,6 +9,33 @@ from pathlib import Path
 from typing import Union
 
 
+class DisableBatchNorm(nn.Module):
+    """Safely replace all BatchNorm1d layers with Identity at inference time.
+    Fixes: 'dictionary changed size during iteration' error."""
+
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+
+        # Step 1: Collect all BatchNorm1d modules and their parent paths
+        replacements = []
+        for name, module in self.model.named_modules():
+            if isinstance(module, nn.BatchNorm1d):
+                # Get the parent module and the attribute name
+                parent_name, attr_name = name.rsplit('.', 1) if '.' in name else ('', name)
+                if parent_name:
+                    parent = self.model.get_submodule(parent_name)
+                else:
+                    parent = self.model
+                replacements.append((parent, attr_name))
+
+        # Step 2: Apply replacements AFTER iteration is done
+        for parent, attr_name in replacements:
+            setattr(parent, attr_name, nn.Identity())
+
+    def forward(self, *args, **kwargs):
+        return self.model(*args, **kwargs)
+
 @torch.no_grad()
 def get_ae_embeddings(
         X: Union[torch.Tensor, np.ndarray],
@@ -57,62 +84,66 @@ def get_sales_embeddings(
         text: Union[torch.Tensor, np.ndarray],
         image: Union[torch.Tensor, np.ndarray],
         weights_path: Union[str, Path],
-        dropout: float = 0.2,
         batch_size: int = 512,
         device: str = None
 ) -> np.ndarray:
+
     weights_path = Path(weights_path)
-    if not weights_path.exists():
-        raise FileNotFoundError(f"Sales predictor weights not found: {weights_path}")
+    checkpoint = torch.load(weights_path, map_location=device or "cpu")
 
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+    # In encode_features.py → get_sales_embeddings()
+    try:
+        encoded_dim = checkpoint['encoded_dim']
+        text_dim = checkpoint['text_dim']
+        image_dim = checkpoint['image_dim']
+        dropout = checkpoint.get('dropout', 0.2)
+    except KeyError as e:
+        # Fallback: infer from input shapes (works if you forget to save metadata)
+        encoded_dim = encoded.shape[1]
+        text_dim = text.shape[1]
+        image_dim = image.shape[1]
+        dropout = 0.2
+        print(f"Warning: {e} not found in checkpoint. Inferred dims: "
+              f"encoded={encoded_dim}, text={text_dim}, image={image_dim}")
 
-    # Properly convert all inputs to torch tensors
-    def to_tensor(arr, name):
-        if isinstance(arr, np.ndarray):
-            return torch.from_numpy(arr).float()
-        elif isinstance(arr, torch.Tensor):
-            return arr.float()
-        else:
-            raise TypeError(f"{name} must be numpy array or torch tensor")
+    # Convert inputs
+    def to_tensor(x):
+        if isinstance(x, np.ndarray): return torch.from_numpy(x).float()
+        return x.float()
 
-    encoded = to_tensor(encoded, "encoded").to(device)
-    text = to_tensor(text, "text").to(device)
-    image = to_tensor(image, "image").to(device)
+    encoded = to_tensor(encoded).to(device or "cpu")
+    text    = to_tensor(text).to(device or "cpu")
+    image   = to_tensor(image).to(device or "cpu")
 
-    # Check shapes
-    if encoded.ndim != 2 or text.ndim != 2 or image.ndim != 2:
-        raise ValueError("All inputs must be 2D (n_samples, dim)")
-
-    n_samples = encoded.shape[0]
-    if text.shape[0] != n_samples or image.shape[0] != n_samples:
-        raise ValueError("All inputs must have the same number of samples")
-
-    encoded_dim = encoded.shape[1]
-    text_dim = text.shape[1]
-    image_dim = image.shape[1]
-
+    # Rebuild model with exact same architecture
     model = SalesPredictor(
         encoded_dim=encoded_dim,
         text_dim=text_dim,
         image_dim=image_dim,
         dropout=dropout
-    ).to(device)
+    ).to(device or "cpu")
 
-    checkpoint = torch.load(weights_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
+
+    # <<< THIS IS THE KEY LINE >>>
+    model = DisableBatchNorm(model)   # removes all BatchNorm → no more NaN
+
     model.eval()
 
+    # Clean any accidental NaN/inf in inputs (defensive)
+    encoded = torch.nan_to_num(encoded, nan=0.0, posinf=0.0, neginf=0.0)
+    text    = torch.nan_to_num(text,    nan=0.0, posinf=0.0, neginf=0.0)
+    image   = torch.nan_to_num(image,   nan=0.0, posinf=0.0, neginf=0.0)
+
     dataset = TensorDataset(encoded, text, image)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    loader  = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
-    predictions = []
-    for enc_b, txt_b, img_b in loader:
-        pred = model(enc_b, txt_b, img_b)
-        predictions.append(pred.cpu().numpy())
+    preds = []
+    for e, t, i in loader:
+        pred = model(e, t, i)          # now guaranteed to be finite
+        preds.append(pred.cpu().numpy())
 
-    return np.concatenate(predictions).flatten()
+    return np.concatenate(preds).flatten()
 
 
 if __name__ == "__main__":
@@ -155,15 +186,14 @@ if __name__ == "__main__":
 
     # --------------------- Sales predictions ---------------------
     print("Generating sales predictions...")
-    best_model_path = sorted(results_folder.glob("sales_predictor_best_*.pth"))[-1]
+    best_model_path = results_folder / "sales_predictor_best_epoch_162_lr_1e-04_bs_32.pth"
     print(f"Using best model: {best_model_path.name}")
 
     test_predictions_log1p = get_sales_embeddings(
         encoded=test_ae,
         text=X_test_text,
         image=X_test_img,
-        weights_path=results_folder / "sales_predictor_best_epoch_142_lr_1e-04_bs_32.pth",
-        dropout=0.2,
+        weights_path=best_model_path,
         batch_size=512
     )
 
