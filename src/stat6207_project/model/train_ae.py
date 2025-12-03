@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import polars as pl
 from pathlib import Path
 from autoencoder_trainer import AutoEncoderTrainer
 from sklearn.model_selection import train_test_split
@@ -10,8 +11,15 @@ import matplotlib.pyplot as plt
 # -------------------------------
 data_folder = Path("data")
 data_folder.mkdir(parents=True, exist_ok=True)
-X_train_full = torch.from_numpy(np.load(data_folder / 'X_train.npy')).float()
-X_test       = torch.from_numpy(np.load(data_folder / 'X_test.npy')).float()
+
+train = pl.read_csv(data_folder / "train_features_target_only_v2.csv")
+test = pl.read_csv(data_folder / "test_features_target_only_v2.csv")
+
+X_train = train.select([col for col in train.columns if col not in ("isbn", "Next_Q1_log1p")])
+X_test = test.select([col for col in train.columns if col not in ("isbn", "Next_Q1_log1p")])
+
+X_train_full = torch.from_numpy(X_train.to_numpy()).float()
+X_test       = torch.from_numpy(X_test.to_numpy()).float()
 
 print(f"Full train set: {X_train_full.shape}")
 print(f"Test set:       {X_test.shape}")
@@ -41,13 +49,13 @@ input_dim = X_train.shape[1]
 trainer = AutoEncoderTrainer(
     input_dim=input_dim,
     encoding_dim=32,
-    lr=0.0001
+    lr=1e-4
 )
 
 trainer.train(
     train_data=X_train,
     val_data=X_val,           # Now we have validation!
-    epochs=120,
+    epochs=100,
     batch_size=32,
     print_every=10
 )
@@ -78,4 +86,5 @@ trainer.plot_losses(
 )
 
 # Save encoder weights (useful for feature extraction in sales prediction)
-trainer.save_weights('encoder', results_folder / 'encoder_weights.pth')
+# trainer.save_weights('encoder', results_folder / 'encoder_weights.pth')
+print("end")
