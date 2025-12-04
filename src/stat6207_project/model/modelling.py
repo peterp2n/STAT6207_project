@@ -28,13 +28,18 @@ test_path = data_folder / "test_all_cols_unstd_v2.csv"
 train_df = pd.read_csv(train_path, dtype={"isbn": "string"})
 test_df = pd.read_csv(test_path, dtype={"isbn": "string"})
 
+train_df = train_df.loc[train_df["isbn"].str.startswith(r"978")]
+test_df = test_df[test_df["isbn"].str.startswith(r"978")]
+
+
 TARGET_COL = "Next_Q1"
 OPP_TARGET_COL = "Next_Q1_log1p"
 
 y_train_full = train_df[OPP_TARGET_COL]
 y_test = test_df[OPP_TARGET_COL]
 
-cols_to_drop = ['isbn', TARGET_COL, 'Next_Q2', 'Next_Q3', 'Next_Q4']
+
+cols_to_drop = ['isbn', TARGET_COL, 'Next_Q2', 'Next_Q3', 'Next_Q4', "price"]
 
 X_train_full = train_df.drop(columns=cols_to_drop)
 X_test = test_df.drop(columns=cols_to_drop)
