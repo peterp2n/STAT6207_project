@@ -25,6 +25,12 @@ test_path = data_folder / "test_all_cols_v3.csv"
 # -------------------------------
 # Load Data
 # -------------------------------
+# all cols: ['isbn', 'publisher', 'print_length', 'item_weight', 'length', 'width', 'height', 'rating',
+# 'number_of_reviews', 'price', 'channel', 'Quarters_since_first', 'Previous_quarter_qty', 'Current_quarter_qty',
+# 'Next_Q1', 'Next_Q2', 'Next_Q3', 'Next_Q4', 'Book_Flag', 'Avg_discount_cleaned', 'Next_Q1_log1p',
+# 'book_format_board_book', 'book_format_cards', 'book_format_hardcover', 'book_format_library_binding',
+# 'book_format_paperback', 'reading_age_adolescence or above', 'reading_age_baby', 'reading_age_preadolescence',
+# 'reading_age_preschool', 'reading_age_toddler', 'Quarter_num_1', 'Quarter_num_2', 'Quarter_num_3', 'Quarter_num_4']
 train_df = pd.read_csv(train_path, dtype={"isbn": "string"})
 test_df = pd.read_csv(test_path, dtype={"isbn": "string"})
 
@@ -289,8 +295,8 @@ print("Predicted quantity: ", preds_target)
 target_col_name = "pred_next_q1"
 preds_target_df = pd.concat([target_df, pd.DataFrame({target_col_name: preds_target})], axis=1)
 preds_target_df = preds_target_df[["isbn", target_col_name]]
-preds_target_df.to_csv(data_folder / "target_pred_q1.csv", index=False)
-preds_target_df.to_excel(data_folder / "target_pred_q1.xlsx", index=False)
+# preds_target_df.to_csv(data_folder / "target_pred_q1.csv", index=False)
+# preds_target_df.to_excel(data_folder / "target_pred_q1.xlsx", index=False)
 
 log1p_pred = preds_target * target_std + target_mean
 
