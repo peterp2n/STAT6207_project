@@ -19,8 +19,8 @@ torch.manual_seed(42)
 data_folder = Path("data")
 data_folder.mkdir(parents=True, exist_ok=True)
 
-train_path = data_folder / "train_all_cols_unstd_v2.csv"
-test_path = data_folder / "test_all_cols_unstd_v2.csv"
+train_path = data_folder / "train_all_cols_v3.csv"
+test_path = data_folder / "test_all_cols_v3.csv"
 
 # -------------------------------
 # Load Data
@@ -35,14 +35,38 @@ test_df = test_df[test_df["isbn"].str.startswith(r"978")]
 TARGET_COL = "Next_Q1"
 OPP_TARGET_COL = "Next_Q1_log1p"
 
-y_train_full = train_df[OPP_TARGET_COL]
-y_test = test_df[OPP_TARGET_COL]
+y_train_full = train_df[TARGET_COL]
+y_test = test_df[TARGET_COL]
 
 
-cols_to_drop = ['isbn', TARGET_COL, 'Next_Q2', 'Next_Q3', 'Next_Q4', "price"]
+cols_to_drop = (
+    ['isbn', TARGET_COL, OPP_TARGET_COL, "publisher", 'Next_Q2', 'Next_Q3', 'Next_Q4', "price",
+                "Book_Flag", "width", "height", "length", "number_of_reviews", "rating"]
+)
+
 
 X_train_full = train_df.drop(columns=cols_to_drop)
 X_test = test_df.drop(columns=cols_to_drop)
+
+numeric_cols = X_train_full.select_dtypes(include='number').columns.tolist()
+numeric_cols = [col for col in numeric_cols if any(("quarter" not in col.lower(), "reading_age" not in col.lower(), "channel" not in col.lower()))]
+
+for col in numeric_cols:
+    # Check if all values are non-negative
+    if (X_train_full[col] >= 0).all():
+        # Log transform first
+        X_train_full[col] = np.log1p(X_train_full[col])
+        X_test[col] = np.log1p(X_test[col])
+
+        # Then clip on transformed data
+        col_np = X_train_full[col].to_numpy()
+        col_mean = col_np.mean()
+        col_std = col_np.std()
+        col_lower = col_mean - 3 * col_std
+        col_upper = col_mean + 3 * col_std
+
+        X_train_full[col] = np.clip(col_np, col_lower, col_upper)
+        X_test[col] = np.clip(X_test[col].to_numpy(), col_lower, col_upper)
 
 # Ensure identical column order
 X_test = X_test[X_train_full.columns]
@@ -53,18 +77,18 @@ X_test = X_test[X_train_full.columns]
 from sklearn.model_selection import train_test_split
 
 X_train, X_val, y_train, y_val = train_test_split(
-    X_train_full, y_train_full, test_size=0.2, random_state=42
+    X_train_full, y_train_full, train_size=0.9, random_state=42
 )
 
 # Convert to tensors
-X_train_tensor = torch.tensor(X_train.values, dtype=torch.float32)
-y_train_tensor = torch.tensor(y_train.values, dtype=torch.float32).view(-1, 1)
+X_train_tensor = torch.tensor(X_train.to_numpy(), dtype=torch.float32)
+y_train_tensor = torch.tensor(y_train.to_numpy(), dtype=torch.float32).view(-1, 1)
 
-X_val_tensor = torch.tensor(X_val.values, dtype=torch.float32)
-y_val_tensor = torch.tensor(y_val.values, dtype=torch.float32).view(-1, 1)
+X_val_tensor = torch.tensor(X_val.to_numpy(), dtype=torch.float32)
+y_val_tensor = torch.tensor(y_val.to_numpy(), dtype=torch.float32).view(-1, 1)
 
-X_test_tensor = torch.tensor(X_test.values, dtype=torch.float32)
-y_test_tensor = torch.tensor(y_test.values, dtype=torch.float32).view(-1, 1)
+X_test_tensor = torch.tensor(X_test.to_numpy(), dtype=torch.float32)
+y_test_tensor = torch.tensor(y_test.to_numpy(), dtype=torch.float32).view(-1, 1)
 
 # Move validation & test tensors to device once
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -104,7 +128,7 @@ input_dim = X_train_tensor.shape[1]
 model = Regressor(input_dim=input_dim, dropout=0).to(device)
 
 criterion = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=1.5e-5)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
 
 # -------------------------------
 # Training Loop with Validation
@@ -211,7 +235,7 @@ plt.plot(val_loss_history, label="Validation MSE", linewidth=2)
 plt.axvline(x=best_epoch - 1, color='g', linestyle='--', alpha=0.5, label=f'Best Epoch ({best_epoch})')
 plt.xlabel("Epoch")
 plt.ylabel("MSE Loss")
-plt.ylim(bottom=0, top=5)
+plt.ylim(bottom=0, top=1)
 plt.title("Training vs Validation Loss")
 plt.legend()
 plt.grid(True, alpha=0.3)
@@ -233,3 +257,36 @@ plt.tight_layout()
 plt.show()
 
 print("Training and evaluation completed.")
+
+#==========================
+target_path = data_folder / "target_books_cleaned.csv"
+target_df = pd.read_csv(target_path, dtype={"isbn": "string"})
+
+target_mean = y_train_full.mean()
+target_std = y_train_full.std()
+# Use exactly the same feature columns and order as training
+X_target = target_df[X_train_full.columns]
+
+# To tensor and device
+X_target_tensor = torch.tensor(X_target.to_numpy(), dtype=torch.float32).to(device)
+
+# Predict
+model.eval()
+with torch.no_grad():
+    preds_target = model(X_target_tensor).cpu().numpy().flatten()
+print("Predicted quantity: ", preds_target)
+
+target_col_name = "pred_next_q1"
+preds_target_df = pd.concat([target_df, pd.DataFrame({target_col_name: preds_target})], axis=1)
+preds_target_df = preds_target_df[["isbn", target_col_name]]
+preds_target_df
+
+log1p_pred = preds_target * target_std + target_mean
+
+# 2) log1p(x) -> x
+next_q1_pred = np.expm1(log1p_pred)
+print("Reversed prediction: ", next_q1_pred)
+
+reverse_mean = np.expm1(target_mean)
+
+
