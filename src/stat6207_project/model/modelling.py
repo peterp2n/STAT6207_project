@@ -35,7 +35,7 @@ test_df = test_df[(test_df["isbn"].str.startswith(r"978")) & (test_df["channel"]
 # test_df = test_df[test_df["isbn"].str.startswith(r"978")]
 
 
-TARGET_COL = "Next_Q2"
+TARGET_COL = "Next_Q1"
 OPP_TARGET_COL = "Next_Q1_log1p"
 
 y_train_full = train_df[TARGET_COL]
