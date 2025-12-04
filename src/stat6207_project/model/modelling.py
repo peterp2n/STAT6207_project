@@ -28,8 +28,11 @@ test_path = data_folder / "test_all_cols_v3.csv"
 train_df = pd.read_csv(train_path, dtype={"isbn": "string"})
 test_df = pd.read_csv(test_path, dtype={"isbn": "string"})
 
-train_df = train_df.loc[train_df["isbn"].str.startswith(r"978")]
-test_df = test_df[test_df["isbn"].str.startswith(r"978")]
+train_df = train_df.loc[(train_df["isbn"].str.startswith(r"978")) & (train_df["channel"] == 1)]
+test_df = test_df[(test_df["isbn"].str.startswith(r"978")) & (test_df["channel"] == 1)]
+
+# train_df = train_df.loc[train_df["isbn"].str.startswith(r"978")]
+# test_df = test_df[test_df["isbn"].str.startswith(r"978")]
 
 
 TARGET_COL = "Next_Q1"
@@ -40,8 +43,13 @@ y_test = test_df[TARGET_COL]
 
 
 cols_to_drop = (
-    ['isbn', TARGET_COL, OPP_TARGET_COL, "publisher", 'Next_Q2', 'Next_Q3', 'Next_Q4', "price",
-                "Book_Flag", "width", "height", "length", "number_of_reviews", "rating"]
+    ['isbn', TARGET_COL, OPP_TARGET_COL, "publisher", 'Next_Q1', "Next_Q2", 'Next_Q3', 'Next_Q4', "price",
+    "Book_Flag", "number_of_reviews", "rating", "Avg_discount_cleaned",
+    "Quarters_since_first",
+    "channel",
+    # "width", "height", "length",
+    ]
+    # + [col for col in train_df.columns if "reading_age" in col]
 )
 
 
@@ -49,7 +57,8 @@ X_train_full = train_df.drop(columns=cols_to_drop)
 X_test = test_df.drop(columns=cols_to_drop)
 
 numeric_cols = X_train_full.select_dtypes(include='number').columns.tolist()
-numeric_cols = [col for col in numeric_cols if any(("quarter" not in col.lower(), "reading_age" not in col.lower(), "channel" not in col.lower()))]
+numeric_cols = [col for col in numeric_cols if all(("quarter" not in col.lower(), "reading_age" not in col.lower(),
+                                                    "channel" not in col.lower(), "book_format" not in col.lower()))]
 
 for col in numeric_cols:
     # Check if all values are non-negative
@@ -65,8 +74,8 @@ for col in numeric_cols:
         col_lower = col_mean - 3 * col_std
         col_upper = col_mean + 3 * col_std
 
-        X_train_full[col] = np.clip(col_np, col_lower, col_upper)
-        X_test[col] = np.clip(X_test[col].to_numpy(), col_lower, col_upper)
+        # X_train_full[col] = np.clip(col_np, col_lower, col_upper)
+        # X_test[col] = np.clip(X_test[col].to_numpy(), col_lower, col_upper)
 
 # Ensure identical column order
 X_test = X_test[X_train_full.columns]
@@ -167,7 +176,7 @@ for epoch in range(epochs):
 
     train_mse = epoch_loss / len(train_loader.dataset)
     train_rmse = np.sqrt(train_mse)
-    loss_history.append(train_mse)
+    loss_history.append(train_rmse)
 
     # ---------- Validation ----------
     model.eval()
@@ -176,7 +185,7 @@ for epoch in range(epochs):
         val_loss = criterion(val_preds, y_val_device)
         val_mse = val_loss.item()
         val_rmse = np.sqrt(val_mse)
-        val_loss_history.append(val_mse)
+        val_loss_history.append(val_rmse)
 
     # --- Save Best Model Logic (MOVED HERE) ---
     if val_mse < best_val_mse:
@@ -229,13 +238,13 @@ print(results_df.head())
 # -------------------------------
 # 1. Training vs Validation Loss
 plt.figure(figsize=(8, 5))
-plt.plot(loss_history, label="Train MSE", linewidth=2)
-plt.plot(val_loss_history, label="Validation MSE", linewidth=2)
+plt.plot(loss_history, label="Train RMSE", linewidth=2)
+plt.plot(val_loss_history, label="Validation RMSE", linewidth=2)
 # Add a marker for the best epoch
 plt.axvline(x=best_epoch - 1, color='g', linestyle='--', alpha=0.5, label=f'Best Epoch ({best_epoch})')
 plt.xlabel("Epoch")
 plt.ylabel("MSE Loss")
-plt.ylim(bottom=0, top=1)
+plt.ylim(bottom=min(0, min(min(loss_history), min(val_loss_history)) * 0.9) , top=max(max(loss_history), max(val_loss_history)) * 1.1)
 plt.title("Training vs Validation Loss")
 plt.legend()
 plt.grid(True, alpha=0.3)
@@ -276,10 +285,12 @@ with torch.no_grad():
     preds_target = model(X_target_tensor).cpu().numpy().flatten()
 print("Predicted quantity: ", preds_target)
 
+# preds_target = np.expm1(preds_target)
 target_col_name = "pred_next_q1"
 preds_target_df = pd.concat([target_df, pd.DataFrame({target_col_name: preds_target})], axis=1)
 preds_target_df = preds_target_df[["isbn", target_col_name]]
-preds_target_df
+preds_target_df.to_csv(data_folder / "target_pred_q1.csv", index=False)
+preds_target_df.to_excel(data_folder / "target_pred_q1.xlsx", index=False)
 
 log1p_pred = preds_target * target_std + target_mean
 
