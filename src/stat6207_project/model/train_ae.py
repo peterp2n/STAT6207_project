@@ -85,7 +85,7 @@ input_dim = X_train.shape[1]
 # -------------------------------
 trainer = AutoEncoderTrainer(
     input_dim=input_dim,
-    encoding_dim=input_dim,
+    encoding_dim=8,
     lr=1e-4
 )
 
@@ -151,8 +151,8 @@ target_tensor = torch.from_numpy(target.to_numpy()).float()
 
 encoded_tensor = trainer.get_embeddings(target_tensor)
 
-cos_sim = trainer.get_reconstruction_similarity(target_tensor, encoded_tensor)
+cos_sim = trainer.get_reconstruction_similarity(X_train_full)
 
-# trainer.save_weights(part="encoder", path=results_folder / "encoder_weights.pth")
+trainer.save_weights(part="encoder", path=results_folder / "encoder_weights.pth")
 
 print("end")
