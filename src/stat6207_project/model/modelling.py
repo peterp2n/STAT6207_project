@@ -5,6 +5,7 @@ from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
+from imblearn.over_sampling import SMOTE
 from pathlib import Path
 import os
 import copy  # Added to deepcopy the model state
@@ -13,6 +14,10 @@ import copy  # Added to deepcopy the model state
 # Configuration & Paths
 # -------------------------------
 os.chdir('/Users/ty/Downloads/STAT6207/STAT6207_project')  # Adjust if needed
+
+import pandas as pd
+from pathlib import Path
+import torch
 
 torch.manual_seed(42)
 
@@ -25,27 +30,50 @@ test_path = data_folder / "test_all_cols_v3.csv"
 # -------------------------------
 # Load Data
 # -------------------------------
-# all cols: ['isbn', 'publisher', 'print_length', 'item_weight', 'length', 'width', 'height', 'rating',
-# 'number_of_reviews', 'price', 'channel', 'Quarters_since_first', 'Previous_quarter_qty', 'Current_quarter_qty',
-# 'Next_Q1', 'Next_Q2', 'Next_Q3', 'Next_Q4', 'Book_Flag', 'Avg_discount_cleaned', 'Next_Q1_log1p',
-# 'book_format_board_book', 'book_format_cards', 'book_format_hardcover', 'book_format_library_binding',
-# 'book_format_paperback', 'reading_age_adolescence or above', 'reading_age_baby', 'reading_age_preadolescence',
-# 'reading_age_preschool', 'reading_age_toddler', 'Quarter_num_1', 'Quarter_num_2', 'Quarter_num_3', 'Quarter_num_4']
 train_df = pd.read_csv(train_path, dtype={"isbn": "string"})
 test_df = pd.read_csv(test_path, dtype={"isbn": "string"})
 
-# train_df = train_df.loc[(train_df["isbn"].str.startswith(r"978")) & (train_df["channel"] == 1)]
-# test_df = test_df[(test_df["isbn"].str.startswith(r"978")) & (test_df["channel"] == 1)]
-
+# Filter for valid ISBNs first
 train_df = train_df.loc[train_df["isbn"].str.startswith(r"978")]
 test_df = test_df[test_df["isbn"].str.startswith(r"978")]
 
+# -------------------------------
+# INTEGRATED: Oversampling Logic
+# -------------------------------
+print(f"Original class distribution:\n{train_df['Book_Flag'].value_counts()}")
+
+# 1. Separate the classes
+majority_df = train_df[train_df['Book_Flag'] == 0]
+minority_df = train_df[train_df['Book_Flag'] == 1]
+
+TARGET_RATIO = 13 # Desired majority:minority ratio
+target_n = int(len(majority_df) / TARGET_RATIO)
+
+print(f"Upsampling minority from {len(minority_df)} to {target_n}...")
+
+minority_upsampled = minority_df.sample(
+    n=target_n,
+    replace=True,
+    random_state=42
+)
+
+# 3. Combine and Shuffle
+# Shuffling (sample(frac=1)) is crucial so your batches aren't all 0s then all 1s
+train_df = pd.concat([majority_df, minority_upsampled])
+train_df = train_df.sample(frac=1, random_state=42).reset_index(drop=True)
+
+print(f"New class distribution:\n{train_df['Book_Flag'].value_counts()}")
+# -------------------------------
+# End of Oversampling
+# -------------------------------
 
 TARGET_COL = "Next_Q1"
 OPP_TARGET_COL = "Next_Q1_log1p"
 
+# Now y_train_full will contain the targets for the oversampled data
 y_train_full = train_df[TARGET_COL]
 y_test = test_df[TARGET_COL]
+
 
 
 cols_to_drop = (
@@ -92,7 +120,7 @@ X_test = X_test[X_train_full.columns]
 from sklearn.model_selection import train_test_split
 
 X_train, X_val, y_train, y_val = train_test_split(
-    X_train_full, y_train_full, train_size=0.9, random_state=42
+    X_train_full, y_train_full, train_size=0.8, random_state=42
 )
 
 # Convert to tensors
@@ -114,7 +142,10 @@ X_test_device = X_test_tensor.to(device)
 # -------------------------------
 # DataLoader
 # -------------------------------
-batch_size = 64
+batch_size = 512
+drop = 0.2
+learning_rate = 1e-5
+wt_decay = 1e-4
 train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
@@ -140,15 +171,15 @@ class Regressor(nn.Module):
 
 
 input_dim = X_train_tensor.shape[1]
-model = Regressor(input_dim=input_dim, dropout=0).to(device)
+model = Regressor(input_dim=input_dim, dropout=drop).to(device)
 
 criterion = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=wt_decay)
 
 # -------------------------------
 # Training Loop with Validation
 # -------------------------------
-epochs = 200
+epochs = 250
 loss_history = []  # Train MSE per epoch
 val_loss_history = []  # Validation MSE per epoch
 clip_value = 1.0  # Threshold for gradient clipping
@@ -250,7 +281,7 @@ plt.plot(val_loss_history, label="Validation RMSE", linewidth=2)
 plt.axvline(x=best_epoch - 1, color='g', linestyle='--', alpha=0.5, label=f'Best Epoch ({best_epoch})')
 plt.xlabel("Epoch")
 plt.ylabel("MSE Loss")
-plt.ylim(bottom=min(0, min(min(loss_history), min(val_loss_history)) * 0.9) , top=max(max(loss_history), max(val_loss_history)) * 1.1)
+plt.ylim(bottom=min(min(loss_history), min(val_loss_history)) * 0.9 , top=max(max(loss_history), max(val_loss_history)) * 1.1)
 plt.title("Training vs Validation Loss")
 plt.legend()
 plt.grid(True, alpha=0.3)
