@@ -152,3 +152,22 @@ class AutoEncoderTrainer(nn.Module):
             print(f"Decoder weights saved to {path}")
         else:
             raise ValueError("part must be 'encoder' or 'decoder'")
+
+    def get_reconstruction_similarity(self, data: torch.Tensor) -> torch.Tensor:
+        """
+        Returns cosine similarity between original inputs and their reconstructions.
+        Shape: (N,) → one similarity value per book/sample, in [-1, 1].
+        Higher = better reconstruction.
+        """
+        self.model.eval()
+        with torch.no_grad():
+            reconstructed = self.model(data)
+
+        # L2-normalize both tensors
+        orig_norm = torch.nn.functional.normalize(data, p=2, dim=1)
+        recon_norm = torch.nn.functional.normalize(reconstructed, p=2, dim=1)
+
+        # Cosine similarity = dot product of unit vectors
+        cos_sim = torch.sum(orig_norm * recon_norm, dim=1)
+
+        return cos_sim
