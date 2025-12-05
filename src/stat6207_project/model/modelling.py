@@ -15,9 +15,6 @@ import copy  # Added to deepcopy the model state
 # -------------------------------
 os.chdir('/Users/ty/Downloads/STAT6207/STAT6207_project')  # Adjust if needed
 
-import pandas as pd
-from pathlib import Path
-import torch
 
 torch.manual_seed(42)
 
@@ -142,6 +139,7 @@ X_test_device = X_test_tensor.to(device)
 # -------------------------------
 # DataLoader
 # -------------------------------
+epochs = 250
 batch_size = 512
 drop = 0.2
 learning_rate = 1e-5
@@ -179,7 +177,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=
 # -------------------------------
 # Training Loop with Validation
 # -------------------------------
-epochs = 250
+
 loss_history = []  # Train MSE per epoch
 val_loss_history = []  # Validation MSE per epoch
 clip_value = 1.0  # Threshold for gradient clipping
