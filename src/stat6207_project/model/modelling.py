@@ -43,8 +43,9 @@ test_df = test_df[test_df["isbn"].str.startswith(r"978")]
 print(f"Original class distribution:\n{train_df['Book_Flag'].value_counts()}")
 
 # 1. Separate the classes
-majority_df = train_df[train_df['Book_Flag'] == 0]
-minority_df = train_df[train_df['Book_Flag'] == 1]
+minority_mask = (train_df['Book_Flag'] == 1) & (train_df["Quarters_since_first"] == 0)
+majority_df = train_df[~minority_mask]
+minority_df = train_df[minority_mask]
 
 TARGET_RATIO = 13 # Desired majority:minority ratio
 target_n = int(len(majority_df) / TARGET_RATIO)
@@ -57,8 +58,7 @@ minority_upsampled = minority_df.sample(
     random_state=42
 )
 
-# 3. Combine and Shuffle
-# Shuffling (sample(frac=1)) is crucial so your batches aren't all 0s then all 1s
+# Combine and shuffle — identical to your original code
 train_df = pd.concat([majority_df, minority_upsampled])
 train_df = train_df.sample(frac=1, random_state=42).reset_index(drop=True)
 
@@ -79,8 +79,8 @@ y_test = test_df[TARGET_COL]
 cols_to_drop = (
     ['isbn', TARGET_COL, OPP_TARGET_COL, "publisher", 'Next_Q1', "Next_Q2", 'Next_Q3', 'Next_Q4', "price",
     "Book_Flag", "number_of_reviews", "rating", "Avg_discount_cleaned",
-    "Quarters_since_first",
-    "channel",
+    # "Quarters_since_first",
+    # "channel",
     # "width", "height", "length",
     ]
     # + [col for col in train_df.columns if "reading_age" in col]
@@ -120,7 +120,7 @@ X_test = X_test[X_train_full.columns]
 from sklearn.model_selection import train_test_split
 
 X_train, X_val, y_train, y_val = train_test_split(
-    X_train_full, y_train_full, train_size=0.8, random_state=42
+    X_train_full, y_train_full, train_size=0.85, random_state=42
 )
 
 # Convert to tensors
@@ -145,7 +145,7 @@ X_test_device = X_test_tensor.to(device)
 batch_size = 512
 drop = 0.2
 learning_rate = 1e-5
-wt_decay = 1e-4
+wt_decay = 0
 train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
@@ -205,7 +205,7 @@ for epoch in range(epochs):
         loss.backward()
 
         # Gradient Clipping
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_value)
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_value)
 
         optimizer.step()
 
@@ -329,10 +329,10 @@ preds_target_df = preds_target_df[["isbn", target_col_name]]
 # preds_target_df.to_csv(data_folder / "target_pred_q1_v2.csv", index=False)
 # preds_target_df.to_excel(data_folder / "target_pred_q1_v2.xlsx", index=False)
 
-log1p_pred = preds_target * target_std + target_mean
+# preds_target = preds_target * target_std + target_mean
 
 # 2) log1p(x) -> x
-next_q1_pred = np.expm1(log1p_pred)
+next_q1_pred = np.expm1(preds_target)
 print("Reversed prediction: ", next_q1_pred)
 
 reverse_mean = np.expm1(target_mean)
