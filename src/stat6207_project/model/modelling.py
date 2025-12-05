@@ -34,11 +34,11 @@ test_path = data_folder / "test_all_cols_v3.csv"
 train_df = pd.read_csv(train_path, dtype={"isbn": "string"})
 test_df = pd.read_csv(test_path, dtype={"isbn": "string"})
 
-train_df = train_df.loc[(train_df["isbn"].str.startswith(r"978")) & (train_df["channel"] == 1)]
-test_df = test_df[(test_df["isbn"].str.startswith(r"978")) & (test_df["channel"] == 1)]
+# train_df = train_df.loc[(train_df["isbn"].str.startswith(r"978")) & (train_df["channel"] == 1)]
+# test_df = test_df[(test_df["isbn"].str.startswith(r"978")) & (test_df["channel"] == 1)]
 
-# train_df = train_df.loc[train_df["isbn"].str.startswith(r"978")]
-# test_df = test_df[test_df["isbn"].str.startswith(r"978")]
+train_df = train_df.loc[train_df["isbn"].str.startswith(r"978")]
+test_df = test_df[test_df["isbn"].str.startswith(r"978")]
 
 
 TARGET_COL = "Next_Q1"
@@ -274,7 +274,7 @@ plt.show()
 print("Training and evaluation completed.")
 
 #==========================
-target_path = data_folder / "target_books_cleaned.csv"
+target_path = data_folder / "target_books_cleaned_v2.csv"
 target_df = pd.read_csv(target_path, dtype={"isbn": "string"})
 
 target_mean = y_train_full.mean()
@@ -295,8 +295,8 @@ print("Predicted quantity: ", preds_target)
 target_col_name = "pred_next_q1"
 preds_target_df = pd.concat([target_df, pd.DataFrame({target_col_name: preds_target})], axis=1)
 preds_target_df = preds_target_df[["isbn", target_col_name]]
-# preds_target_df.to_csv(data_folder / "target_pred_q1.csv", index=False)
-# preds_target_df.to_excel(data_folder / "target_pred_q1.xlsx", index=False)
+# preds_target_df.to_csv(data_folder / "target_pred_q1_v2.csv", index=False)
+# preds_target_df.to_excel(data_folder / "target_pred_q1_v2.xlsx", index=False)
 
 log1p_pred = preds_target * target_std + target_mean
 
