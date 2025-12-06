@@ -3,34 +3,26 @@ import torch.nn as nn
 
 
 class Regressor(nn.Module):
-    """
-    A simple PyTorch regressor model for predicting book sales quantities.
+    def __init__(self, input_dim=10, dropout=0.3):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 256),  # Scaled down from 512 but still > original 64
+            nn.ReLU(),
+            nn.Dropout(dropout),
 
-    Based on the dataset dimensions (45484 samples, 13 columns including target),
-    we've identified approximately 10 numerical features (format_hardcover, 4 channels,
-    discount_rate, q_num_2/3/4, q_since_first) plus categorical features (isbn with 119 unique values,
-    title with 116). For an initial guess, assuming an embedding dimension of ~16 for ISBN (sqrt(119) ≈ 11,
-    rounded up for flexibility), the effective input dimension is around 26 (16 embed + 10 numerical).
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(dropout),
 
-    Thus, the first hidden layer starts with 64 neurons (a power of 2, roughly 2-3x input dim for good capacity
-    without overfitting on 45k samples). Subsequent layers taper down for a funnel-like architecture,
-    which is a common heuristic for regression tasks to extract hierarchical features.
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Dropout(dropout),
 
-    This design prioritizes simplicity and efficiency, allowing easy experimentation with hyperparameters.
-    """
+            nn.Linear(64, 32),
+            nn.ReLU(),
 
-    def __init__(self, input_dim: int = 26, hidden_dim: int = 64):
-        super(Regressor, self).__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)  # Initial guess: 64 neurons
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim // 2)
-        self.fc3 = nn.Linear(hidden_dim // 2, 1)  # Output: single regression value (quantity)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.2)  # Light dropout for regularization on moderate dataset size
+            nn.Linear(32, 1)
+        )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = self.relu(self.fc2(x))
-        x = self.dropout(x)
-        x = self.fc3(x)
-        return x.squeeze()  # Flatten to scalar for regression
+    def forward(self, x):
+        return self.net(x).squeeze()
