@@ -150,7 +150,7 @@ if __name__ == "__main__":
         ])
     )
 
-    groupby_cols = ["isbn", "year_quarter", "format", "channel"]
+    groupby_cols = ["isbn", "title", "year_quarter", "format", "channel", "q_num", "q_since_first"]
     sales_groupby = (
         join
         .group_by(groupby_cols)
@@ -161,39 +161,45 @@ if __name__ == "__main__":
         .sort(["quantity"], descending=True)
     )
 
-    # Drop quantity before joining
-    join = join.drop(["quantity"])
-    join = join.join(sales_groupby, on=groupby_cols, how="left").drop(["discount_rate"])
 
-
-
-    join = join.drop(["trandate", "first_trandate"])
-
-
-    join = (
-        join.to_dummies(columns=["format", "channel", "q_num"], drop_first=True)
+    sales_groupby = (
+        sales_groupby.to_dummies(columns=["format", "channel", "q_num"], drop_first=True)
     )
 
-    join = (
-        join
-        .select(["isbn", "title", "year_quarter"]
-                + [col for col in join.columns if col not in (("isbn", "title", "year_quarter", "quantity"))]
-                + ["quantity"])
-    )
+    cols_order = [col for col in sales_groupby.columns if col != "quantity"] + ["quantity"]
+    sales_groupby = sales_groupby.select(cols_order)
 
-    # If you want to see the filtered results:
-    dog_man_books = join.filter(dog_man_mask)
-    cat_kid_books = join.filter(cat_kid_mask)
-    captain_books = join.filter(captain_mask)
-    andy_books = join.filter(andy_mask)
-    guinness_books = join.filter(guinness_mask)
-    target_books = join.filter(target_mask)
+    print("pause")
+    # # Drop quantity before joining
+    # join = join.drop(["quantity"])
+    # join = join.join(sales_groupby, on=groupby_cols, how="left").drop(["discount_rate"])
+    #
+    # join = join.drop(["trandate", "first_trandate"])
+    #
+    # join = (
+    #     join.to_dummies(columns=["format", "channel", "q_num"], drop_first=True)
+    # )
+    #
+    # join = (
+    #     join
+    #     .select(["isbn", "title", "year_quarter"]
+    #             + [col for col in join.columns if col not in (("isbn", "title", "year_quarter", "quantity"))]
+    #             + ["quantity"])
+    # )
 
-    # target_books.write_csv(data_folder / "target_series_new.csv", include_bom=True)
-    # target_books.write_excel(data_folder / "target_series_new.xlsx")
+    # # If you want to see the filtered results:
+    # dog_man_books = join.filter(dog_man_mask)
+    # cat_kid_books = join.filter(cat_kid_mask)
+    # captain_books = join.filter(captain_mask)
+    # andy_books = join.filter(andy_mask)
+    # guinness_books = join.filter(guinness_mask)
+    # target_books = join.filter(target_mask)
+
+    # sales_groupby.write_csv(data_folder / "target_series_new.csv", include_bom=True)
+    # sales_groupby.write_excel(data_folder / "target_series_new.xlsx")
 
     plt.figure(figsize=(8, 6))
-    plt.boxplot(target_books["quantity"], vert=False, patch_artist=True,
+    plt.boxplot(sales_groupby["quantity"], vert=False, patch_artist=True,
                 boxprops=dict(facecolor='skyblue', color='black'),
                 medianprops=dict(color='red'),
                 whiskerprops=dict(color='black'),
@@ -207,7 +213,7 @@ if __name__ == "__main__":
     plt.show()
 
     plt.figure(figsize=(8, 6))
-    plt.boxplot(target_books["q_since_first"], vert=False, patch_artist=True,
+    plt.boxplot(sales_groupby["q_since_first"], vert=False, patch_artist=True,
                 boxprops=dict(facecolor='skyblue', color='black'),
                 medianprops=dict(color='red'),
                 whiskerprops=dict(color='black'),
@@ -221,7 +227,7 @@ if __name__ == "__main__":
     plt.show()
 
     plt.figure(figsize=(8, 6))
-    plt.boxplot(target_books["avg_discount_rate"], vert=False, patch_artist=True,
+    plt.boxplot(sales_groupby["avg_discount_rate"], vert=False, patch_artist=True,
                 boxprops=dict(facecolor='skyblue', color='black'),
                 medianprops=dict(color='red'),
                 whiskerprops=dict(color='black'),
