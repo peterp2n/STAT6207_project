@@ -17,12 +17,15 @@ class AutoEncoderTrainer:
         print(f"AutoEncoderTrainer using device: {self.device}")
 
         # Model automatically detects and moves to correct device
-        self.model = AutoEncoder(input_dim, encoding_dim)
+        self.model = AutoEncoder(input_dim, encoding_dim).to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.criterion = nn.MSELoss()
 
-        self.train_losses: List[float] = []
-        self.val_losses: List[float] = []
+        self.train_losses: List[float] = []   # Stores MSE
+        self.val_losses: List[float] = []     # Stores MSE (or None)
+
+    def _mse_to_rmse(self, mse: float) -> float:
+        return np.sqrt(mse)
 
     def train(self,
               train_data: torch.Tensor,
@@ -42,7 +45,7 @@ class AutoEncoderTrainer:
         for epoch in range(1, epochs + 1):
             total_train_loss = 0.0
             for batch in loader:
-                inputs, targets = batch  # Already on correct device
+                inputs, targets = batch
                 self.optimizer.zero_grad()
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, targets)
@@ -50,20 +53,24 @@ class AutoEncoderTrainer:
                 self.optimizer.step()
                 total_train_loss += loss.item()
 
-            avg_train_loss = total_train_loss / len(loader)
-            self.train_losses.append(avg_train_loss)
+            avg_train_mse = total_train_loss / len(loader)
+            avg_train_rmse = self._mse_to_rmse(avg_train_mse)
+            self.train_losses.append(avg_train_mse)
 
             val_mse = None
+            val_rmse = None
             if val_data is not None:
                 val_mse = self._compute_mse(val_data)
+                val_rmse = self._mse_to_rmse(val_mse)
                 self.val_losses.append(val_mse)
             else:
                 self.val_losses.append(None)
 
             if epoch % print_every == 0 or epoch == epochs:
-                log_str = f"Epoch [{epoch:>3}/{epochs}]  Train MSE: {avg_train_loss:.6f}"
+                log_str = (f"Epoch [{epoch:>3}/{epochs}]  "
+                           f"Train MSE: {avg_train_mse:.6f}  |  Train RMSE: {avg_train_rmse:.6f}")
                 if val_mse is not None:
-                    log_str += f"  |  Val MSE: {val_mse:.6f}"
+                    log_str += f"  |  Val MSE: {val_mse:.6f}  |  Val RMSE: {val_rmse:.6f}"
                 print(log_str)
 
     def _compute_mse(self, data: torch.Tensor) -> float:
@@ -74,58 +81,69 @@ class AutoEncoderTrainer:
         self.model.train()
         return loss.item()
 
-    def evaluate(self, test_data: torch.Tensor) -> float:
+    def evaluate(self, test_data: torch.Tensor) -> Tuple[float, float]:
+        """
+        Returns (MSE, RMSE) on the test set.
+        """
         test_data = test_data.to(self.device)
-        return self._compute_mse(test_data)
+        mse = self._compute_mse(test_data)
+        rmse = self._mse_to_rmse(mse)
+        return mse, rmse
 
     def get_embeddings(self, data: torch.Tensor) -> torch.Tensor:
         data = data.to(self.device)
         self.model.eval()
         with torch.no_grad():
             embeddings = self.model.encode(data)
-        self.model.train()  # Restore training mode if needed
+        self.model.train()
         return embeddings
 
     def plot_losses(self,
                     figsize: Tuple[int, int] = (10, 6),
-                    title: str = "Autoencoder Training & Validation MSE",
+                    title: str = "Autoencoder Training & Validation Loss",
                     save_path: Optional[str] = None,
-                    y_scale: str = 'auto',  # ← now supports 'auto'
+                    y_scale: str = 'auto',
                     y_lim: Union[str, Tuple[float, float], None] = 'auto',
                     y_ticks: Optional[List[float]] = None,
-                    y_tick_labels: Optional[List[str]] = None):
+                    y_tick_labels: Optional[List[str]] = None,
+                    show_rmse: bool = False):  # New option
 
         epochs = range(1, len(self.train_losses) + 1)
         plt.figure(figsize=figsize)
 
-        plt.plot(epochs, self.train_losses, label="Train MSE", color="tab:blue", linewidth=2.5)
+        # Decide whether to plot MSE or RMSE
+        train_values = [self._mse_to_rmse(v) if show_rmse else v for v in self.train_losses]
+        ylabel = "RMSE Loss" if show_rmse else "MSE Loss"
+        plot_title = title.replace("Loss", ylabel.split()[0] + " Loss")
+
+        plt.plot(epochs, train_values, label=f"Train {ylabel}", color="tab:blue", linewidth=2.5)
 
         if self.val_losses and any(v is not None for v in self.val_losses):
+            val_values = [self._mse_to_rmse(v) if show_rmse and v is not None else v
+                          for v in self.val_losses]
             val_epochs = [i + 1 for i, v in enumerate(self.val_losses) if v is not None]
-            val_losses_clean = [v for v in self.val_losses if v is not None]
-            plt.plot(val_epochs, val_losses_clean, label="Validation MSE", color="tab:orange", linewidth=2.5,
-                     linestyle="--")
+            val_clean = [v for v in val_values if v is not None]
+            plt.plot(val_epochs, val_clean, label=f"Validation {ylabel}",
+                     color="tab:orange", linewidth=2.5, linestyle="--")
 
         plt.xlabel("Epoch", fontsize=12)
-        plt.ylabel("MSE Loss", fontsize=12)
-        plt.title(title, fontsize=14, pad=15)
+        plt.ylabel(ylabel, fontsize=12)
+        plt.title(plot_title, fontsize=14, pad=15)
         plt.legend(fontsize=11)
         plt.grid(True, alpha=0.3, which='both', linestyle='--')
 
-        # === SMART DYNAMIC Y-SCALE ===
+        # Smart dynamic scaling (same logic, now respects RMSE if requested)
         if y_scale == 'auto' or y_lim == 'auto':
-            train_losses_np = np.array(self.train_losses)
-            min_loss = train_losses_np.min()
-            max_loss = train_losses_np.max()
-            loss_ratio = max_loss / max_loss  # just to avoid division by zero
+            arr = np.array(train_values)
+            min_val = arr.min()
+            max_val = arr.max()
 
-            # If loss drops by more than 2 orders of magnitude → use log scale
-            if max_loss / max(min_loss, 1e-8) > 100:  # > 2 orders of magnitude
+            if max_val / max(min_val, 1e-8) > 100:
                 final_y_scale = 'log'
-                final_y_lim = (max(min_loss * 0.5, 1e-8), max_loss * 2)
+                final_y_lim = (max(min_val * 0.5, 1e-8), max_val * 2)
             else:
                 final_y_scale = 'linear'
-                final_y_lim = (0, max_loss * 1.1)
+                final_y_lim = (0, max_val * 1.1)
 
             print(f"Auto-detected y_scale = '{final_y_scale}' | y_lim = {final_y_lim}")
         else:
@@ -165,14 +183,13 @@ class AutoEncoderTrainer:
         cos_sim = torch.sum(orig_norm * recon_norm, dim=1)
         return cos_sim
 
+
 def load_encoder_weights(input_dim: int,
                          encoding_dim: int = 8,
                          weights_path: str = "results/encoder_weights.pth",
                          device: str = "cpu") -> torch.nn.Module:
     """
-    Loads the trained encoder (as a standalone nn.Module) from the weights
-    saved by train_ae2.py.
-    Returns only the encoder part so you can directly use it for embeddings.
+    Loads a standalone encoder from saved weights.
     """
     encoder = torch.nn.Sequential(
         torch.nn.Linear(input_dim, 16),
