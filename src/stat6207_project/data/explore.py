@@ -169,6 +169,99 @@ if __name__ == "__main__":
     cols_order = [col for col in sales_groupby.columns if col != "quantity"] + ["quantity"]
     sales_groupby = sales_groupby.select(cols_order)
 
+    select_cols = [
+            "isbn",
+            "print_length",
+            "item_weight",
+            "length",
+            "width",
+            "height",
+            "rating",
+            "number_of_reviews",
+            "price",
+    ]
+
+    train = (
+        pl.read_csv(data_folder / "train_all_cols_v3.csv", schema_overrides={"isbn": pl.Utf8, "number_of_reviews": pl.Float32})
+        .unique("isbn", keep="first")
+        .select(select_cols)
+        .drop("number_of_reviews")
+    )
+    test = (
+        pl.read_csv(data_folder / "test_all_cols_v3.csv", schema_overrides={"isbn": pl.Utf8, "number_of_reviews": pl.Float32})
+        .unique("isbn", keep="first")
+        .select(select_cols)
+        .drop("number_of_reviews")
+    )
+    train_test = pl.concat([train, test])
+
+    # Combine features with sales_groupby
+    sales_features = (
+        pl.read_csv(data_folder / "target_series_new_with_features.csv",
+                    schema_overrides={"isbn": pl.Utf8,
+                                      "print_length": pl.Float32,
+                                      "number_of_reviews": pl.Float32})
+    )
+
+    groupby_series = (
+        sales_features.group_by("series").agg([
+            pl.col("print_length").median().alias("series_print_length"),
+            pl.col("length").median().alias("series_length"),
+            pl.col("width").median().alias("series_width"),
+            pl.col("height").median().alias("series_height"),
+            pl.col("rating").median().alias("series_rating"),
+            pl.col("item_weight").median().alias("series_item_weight"),
+            pl.col("price").median().alias("series_price"),
+        ])
+    )
+    sales_features = (
+        sales_features.join(groupby_series, on="series", how="left")
+        .with_columns([
+            pl.when(pl.col("print_length").is_null())
+            .then(pl.col("series_print_length"))
+            .otherwise(pl.col("print_length"))
+            .alias("print_length"),
+            pl.when(pl.col("length").is_null())
+            .then(pl.col("series_length"))
+            .otherwise(pl.col("length"))
+            .alias("length"),
+            pl.when(pl.col("width").is_null())
+            .then(pl.col("series_width"))
+            .otherwise(pl.col("width"))
+            .alias("width"),
+            pl.when(pl.col("height").is_null())
+            .then(pl.col("series_height"))
+            .otherwise(pl.col("height"))
+            .alias("height"),
+            pl.when(pl.col("rating").is_null())
+            .then(pl.col("series_rating"))
+            .otherwise(pl.col("rating"))
+            .alias("rating"),
+            pl.when(pl.col("item_weight").is_null())
+            .then(pl.col("series_item_weight"))
+            .otherwise(pl.col("item_weight"))
+            .alias("item_weight"),
+            pl.when(pl.col("price").is_null())
+            .then(pl.col("series_price"))
+            .otherwise(pl.col("price"))
+            .alias("price")
+        ])
+        .drop([
+            "series_print_length",
+            "series_length",
+            "series_width",
+            "series_height",
+            "series_rating",
+            "series_item_weight",
+            "series_price"
+        ])
+    )
+    sales_features = sales_features.select([col for col in sales_features.columns if col != "quantity"] + ["quantity"])
+
+    # sales_features = sales_groupby.join(train_test, on="isbn", how="left")
+    # sales_features.write_csv(data_folder / "target_series_new_with_features.csv", include_bom=True)
+    # sales_features.write_excel(data_folder / "target_series_new_with_features.xlsx")
+
     print("pause")
     # # Drop quantity before joining
     # join = join.drop(["quantity"])
