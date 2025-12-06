@@ -37,6 +37,8 @@ target_col = "quantity"
 metadata_cols = ["isbn", "title"]          # keep these for later merging
 feat_cols = [c for c in df_full.columns if c not in (metadata_cols + [target_col])]
 
+
+
 print(f"Using {len(feat_cols)} feature columns for the autoencoder")
 # print(feat_cols)   # uncomment if you want to double-check
 
@@ -69,6 +71,30 @@ df_val, df_test = train_test_split(
     random_state=42,
     shuffle=True,
 )
+
+transform_cols = [
+    "quantity", "q_since_first", "discount_rate"
+]
+for col in transform_cols:
+    df_train[col] = np.log1p(df_train[col])
+    df_train[col].plot.box()
+    plt.title(f"Boxplot of {col} after log1p transformation")
+    plt.show()
+
+    train_mean = df_train[col].mean()
+    train_std = df_train[col].std()
+
+    df_val[col] = (np.log1p(df_val[col]) - train_mean) / train_std
+    df_test[col] = (np.log1p(df_test[col]) - train_mean) / train_std
+
+    df_val[col].plot.box()
+    plt.title(f"Boxplot of {col} in Val set after log1p and standardization")
+    plt.show()
+    df_test[col].plot.box()
+    plt.title(f"Boxplot of {col} in Test set after log1p and standardization")
+    plt.show()
+
+
 
 print(f"Train rows : {len(df_train):,}")
 print(f"Val   rows : {len(df_val):,}")
@@ -115,8 +141,11 @@ trainer.train(
 # ================================
 # 4. Final evaluation
 # ================================
-test_mse = trainer.evaluate(X_test)
-print(f"\nFinal Test MSE: {test_mse:.6f}")
+test_mse, test_rmse = trainer.evaluate(X_test)
+
+print(f"\nFinal Test Results:")
+print(f"   Test MSE  : {test_mse:.6f}")
+print(f"   Test RMSE : {test_rmse:.6f}")
 
 # ================================
 # 5. Plot training curves
