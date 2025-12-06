@@ -1,5 +1,6 @@
 from pathlib import Path
-
+import numpy as np
+import pandas as pd
 import polars as pl
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -57,7 +58,7 @@ if __name__ == "__main__":
         plt.show()
 
     # 1. Define the columns of interest
-    cols = [
+    continuous_cols = [
         "q_since_first",
         "avg_discount_rate",
         "print_length",
@@ -72,12 +73,12 @@ if __name__ == "__main__":
 
     # 2. Compute correlation in Polars
     # We drop_nulls() to ensure data integrity for the correlation calculation
-    corr_matrix = sales_features.select(cols).drop_nulls().corr()
+    corr_matrix = sales_features.select(continuous_cols).drop_nulls().corr()
 
     # 3. Convert to Pandas for plotting
     # Polars doesn't have an index, so we must manually set it for the heatmap labels
     corr_pdf = corr_matrix.to_pandas()
-    corr_pdf.index = cols  # Set y-axis labels to match x-axis columns
+    corr_pdf.index = continuous_cols  # Set y-axis labels to match x-axis columns
 
     # 4. Create the Heatmap
     plt.figure(figsize=(12, 10))
@@ -96,15 +97,28 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.show()
 
-    # for col in ["format", "channel", "q_num"]:
-    #     # Plot a bar chart for me quantity groupby format
-    #     plt.figure(figsize=(8, 6))
-    #     format_counts = sales_features.group_by(col).agg(pl.col("quantity").sum().alias("total_quantity"))
-    #     plt.bar(format_counts[col], format_counts["total_quantity"], color='skyblue')
-    #     plt.title("Total Quantity Sold by Format for Target Books")
-    #     plt.xlabel(col)
-    #     plt.ylabel("Total Quantity Sold")
-    #     plt.xticks(rotation=45)
-    #     plt.grid(axis='y', alpha=0.75)
-    #     plt.tight_layout()
-    #     plt.show()
+    # For each column in continuous_cols, plot a boxplot showing outliers
+    # Now plot a boxplot of np.log1p transformed values, side by side with the original
+    # Iterate through each continuous column
+    for col in continuous_cols:
+        plt.figure(figsize=(10, 6))
+
+        # Extract the original data (converting from Polars to Pandas)
+        # We use .to_pandas() on the Series directly for efficiency
+        original_data = sales_features[col].to_pandas()
+
+        # Create a temporary DataFrame with both Original and Log-transformed data
+        # This allows Seaborn to plot them side-by-side on the same axis
+        plot_data = pd.DataFrame({
+            'Original': original_data,
+            'Log1p Transformed': np.log1p(original_data)
+        })
+
+        # Plot both columns from plot_data
+        sns.boxplot(data=plot_data, palette=["skyblue", "orange"])
+
+        plt.title(f"Boxplot of {col}: Original vs Log1p Transformed")
+        plt.ylabel("Value")
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        plt.show()
