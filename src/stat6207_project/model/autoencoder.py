@@ -12,15 +12,15 @@ class AutoEncoder(nn.Module):
         print(f"AutoEncoder initialized on {self.device}")
 
         self.encoder = nn.Sequential(
-            nn.Linear(input_dim, 16),
+            nn.Linear(input_dim, 8),  # 10 → 8 (reduce)
             nn.LeakyReLU(inplace=True),
-            nn.Linear(16, encoding_dim),
+            nn.Linear(8, encoding_dim),  # 8 → 6 (bottleneck)
         ).to(self.device)
 
         self.decoder = nn.Sequential(
-            nn.Linear(encoding_dim, 16),
+            nn.Linear(encoding_dim, 8),  # 6 → 8
             nn.LeakyReLU(inplace=True),
-            nn.Linear(16, input_dim),
+            nn.Linear(8, input_dim),  # 8 → 10 (reconstruction)
         ).to(self.device)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
