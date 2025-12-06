@@ -101,47 +101,69 @@ if __name__ == "__main__":
     # Now plot a boxplot of np.log1p transformed values, side by side with the original
     # Iterate through each continuous column
     for col in continuous_cols:
-        plt.figure(figsize=(14, 6))
+        # Create a figure with 5 side-by-side subplots (1 row, 5 columns)
+        # Increased figure width to accommodate the 5th plot
+        fig, axes = plt.subplots(1, 5, figsize=(25, 6), sharey=False)
 
         # 1. Extract original data
         original_data = sales_features[col].to_pandas()
 
-        # 2. Calculate stats for clipping (Mean +/- 3 STD)
-        mean_val = original_data.mean()
-        std_val = original_data.std()
+        # 2. Calculations for transformations
+        # A. Log1p
+        log_data = np.log1p(original_data)
+
+        # B. Clipped (Mean +/- 3 STD)
+        mean_val = log_data.mean()
+        std_val = log_data.std()
         lower_bound = mean_val - 3 * std_val
         upper_bound = mean_val + 3 * std_val
+        clipped_data = np.clip(log_data, lower_bound, upper_bound)
 
-        # 3. Create transformed series
-        log_data = np.log1p(original_data)
-        clipped_data = np.clip(original_data, lower_bound, upper_bound)
-
-        # 4. Create Standardized version of the CLIPPED data
-        # Formula: (x - mean) / std
-        clipped_mean = clipped_data.mean()
-        clipped_std = clipped_data.std()
-        # Handle division by zero if std is 0 (constant column)
-        if clipped_std != 0:
-            standardized_clipped_data = (clipped_data - clipped_mean) / clipped_std
+        # C. Standardized Clipped ((Clipped - Mean) / Std)
+        c_mean = clipped_data.mean()
+        c_std = clipped_data.std()
+        if c_std != 0:
+            std_clipped_data = (clipped_data - c_mean) / c_std
         else:
-            standardized_clipped_data = clipped_data - clipped_mean
+            std_clipped_data = clipped_data - c_mean
 
-        # 5. Combine into DataFrame
-        plot_data = pd.DataFrame({
-            'Original': original_data,
-            'Log1p': log_data,
-            'Clipped (±3 std)': clipped_data,
-            'Std Clipped': standardized_clipped_data
-        })
+        # D. Standardized Log1p ((Log - Mean) / Std) -> NEW 5th Column
+        l_mean = log_data.mean()
+        l_std = log_data.std()
+        if l_std != 0:
+            std_log_data = (log_data - l_mean) / l_std
+        else:
+            std_log_data = log_data - l_mean
 
-        # 6. Plot with 4 distinct colors
-        sns.boxplot(
-            data=plot_data,
-            palette=["skyblue", "orange", "green", "purple"]
-        )
+        # --- PLOTTING ---
 
-        plt.title(f"Boxplot of {col}: Comparison of Transformations")
-        plt.ylabel("Value")
-        plt.grid(axis='y', linestyle='--', alpha=0.7)
-        plt.tight_layout()
+        # 1. Original (Skyblue)
+        sns.boxplot(y=original_data, ax=axes[0], color="skyblue")
+        axes[0].set_title("Original")
+        axes[0].set_ylabel(col)
+
+        # 2. Log1p (Orange)
+        sns.boxplot(y=log_data, ax=axes[1], color="orange")
+        axes[1].set_title("Log1p Transformed")
+        axes[1].set_ylabel("Log Value")
+
+        # 3. Clipped (Green)
+        sns.boxplot(y=clipped_data, ax=axes[2], color="green")
+        axes[2].set_title("Clipped (±3 std)")
+        axes[2].set_ylabel("Clipped Value")
+
+        # 4. Std Clipped (Purple)
+        sns.boxplot(y=std_clipped_data, ax=axes[3], color="purple")
+        axes[3].set_title("Std Clipped")
+        axes[3].set_ylabel("Z-Score (Clipped)")
+
+        # 5. Std Log1p (Red) -> NEW
+        sns.boxplot(y=std_log_data, ax=axes[4], color="red")
+        axes[4].set_title("Std Log1p")
+        axes[4].set_ylabel("Z-Score (Log)")
+
+        # Layout adjustments
+        fig.suptitle(f"Distribution Transformations for {col}", fontsize=16)
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         plt.show()
+
