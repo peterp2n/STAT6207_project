@@ -95,7 +95,7 @@ if __name__ == "__main__":
     )
 
     transform_cols = [
-        "q_since_first", "discount_rate"
+        "q_since_first", "avg_discount_rate"
     ]
 
     show = False
@@ -130,7 +130,7 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
 
     target_col = "quantity"
-    metadata_cols = ["isbn", "title"]  # keep these for later merging
+    metadata_cols = ["isbn", "title", "year_quarter"]  # keep these for later merging
     feat_cols = [c for c in df_full.columns if c not in (metadata_cols + [target_col])]
 
     X_train = torch.from_numpy(df_train[feat_cols].values.astype(np.float32))
@@ -143,13 +143,13 @@ if __name__ == "__main__":
     qty_test_log = np.log1p(df_test[target_col])
 
     # Step 2: Fit StandardScaler only on training (log-transformed) targets
-    train_mean = qty_train_log.mean()
-    train_std = qty_train_log.std()  # usually very close to 1 after log1p
+    target_train_mean = qty_train_log.mean()
+    target_train_std = qty_train_log.std()  # usually very close to 1 after log1p
 
     # Step 3: Standardize all splits with training statistics
-    y_train = ((qty_train_log - train_mean) / train_std).astype(np.float32).to_numpy()
-    y_val = ((qty_val_log - train_mean) / train_std).astype(np.float32).to_numpy()
-    y_test = ((qty_test_log - train_mean) / train_std).astype(np.float32).to_numpy()
+    y_train = ((qty_train_log - target_train_mean) / target_train_std).astype(np.float32).to_numpy()
+    y_val = ((qty_val_log - target_train_mean) / target_train_std).astype(np.float32).to_numpy()
+    y_test = ((qty_test_log - target_train_mean) / target_train_std).astype(np.float32).to_numpy()
 
     # Convert to tensors as before
     y_train = torch.from_numpy(y_train).to(device)
@@ -255,7 +255,7 @@ if __name__ == "__main__":
     # After loop
     plot_rmse_curve(train_rmses, val_rmses, best_epoch=best_epoch)
 
-    target_books_new = pd.read_csv(data_folder / "target_series_new.csv", dtype={"isbn": "string"})
+    target_books_new = pd.read_csv(data_folder / "target_books_new.csv", dtype={"isbn": "string"})
     model.load_state_dict(torch.load("results/regressor_best.pth"))
     model.eval()
     with torch.no_grad():
@@ -263,7 +263,7 @@ if __name__ == "__main__":
             target_books_new[feat_cols].values.astype(np.float32)
         ).to(device)
         preds_all = model(X_all).cpu().numpy()
-    target_books_new["pred_quantity"] = np.expm1(preds_all * preds_all.std() + preds_all.mean())
+    target_books_new["pred_quantity"] = np.expm1(preds_all * target_train_std + target_train_mean)
     print(target_books_new["pred_quantity"].to_numpy().reshape(-1, 1))
 
     # Optional: Save the model
