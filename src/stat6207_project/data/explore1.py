@@ -101,23 +101,46 @@ if __name__ == "__main__":
     # Now plot a boxplot of np.log1p transformed values, side by side with the original
     # Iterate through each continuous column
     for col in continuous_cols:
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(14, 6))
 
-        # Extract the original data (converting from Polars to Pandas)
-        # We use .to_pandas() on the Series directly for efficiency
+        # 1. Extract original data
         original_data = sales_features[col].to_pandas()
 
-        # Create a temporary DataFrame with both Original and Log-transformed data
-        # This allows Seaborn to plot them side-by-side on the same axis
+        # 2. Calculate stats for clipping (Mean +/- 3 STD)
+        mean_val = original_data.mean()
+        std_val = original_data.std()
+        lower_bound = mean_val - 3 * std_val
+        upper_bound = mean_val + 3 * std_val
+
+        # 3. Create transformed series
+        log_data = np.log1p(original_data)
+        clipped_data = np.clip(original_data, lower_bound, upper_bound)
+
+        # 4. Create Standardized version of the CLIPPED data
+        # Formula: (x - mean) / std
+        clipped_mean = clipped_data.mean()
+        clipped_std = clipped_data.std()
+        # Handle division by zero if std is 0 (constant column)
+        if clipped_std != 0:
+            standardized_clipped_data = (clipped_data - clipped_mean) / clipped_std
+        else:
+            standardized_clipped_data = clipped_data - clipped_mean
+
+        # 5. Combine into DataFrame
         plot_data = pd.DataFrame({
             'Original': original_data,
-            'Log1p Transformed': np.log1p(original_data)
+            'Log1p': log_data,
+            'Clipped (±3 std)': clipped_data,
+            'Std Clipped': standardized_clipped_data
         })
 
-        # Plot both columns from plot_data
-        sns.boxplot(data=plot_data, palette=["skyblue", "orange"])
+        # 6. Plot with 4 distinct colors
+        sns.boxplot(
+            data=plot_data,
+            palette=["skyblue", "orange", "green", "purple"]
+        )
 
-        plt.title(f"Boxplot of {col}: Original vs Log1p Transformed")
+        plt.title(f"Boxplot of {col}: Comparison of Transformations")
         plt.ylabel("Value")
         plt.grid(axis='y', linestyle='--', alpha=0.7)
         plt.tight_layout()
