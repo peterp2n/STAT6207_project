@@ -125,7 +125,7 @@ print("\nInitializing AutoEncoderTrainer...")
 
 trainer = AutoEncoderTrainer(
     input_dim=input_dim,
-    encoding_dim=8,        # You were using 8 before → keep it
+    encoding_dim=6,
     lr=1e-4
 )
 
@@ -161,20 +161,8 @@ trainer.plot_losses(
 # 6. Save encoder weights
 # ================================
 encoder_path = results_folder / "encoder_weights.pth"
-trainer.save_weights(part="encoder", path=encoder_path)
+# trainer.save_weights(part="encoder", path=encoder_path)
 
-# # ================================
-# # 7. Extract embeddings from full training set
-# # ================================
-# print("Extracting embeddings from full training data...")
-# with torch.no_grad():
-#     full_embeddings = trainer.get_embeddings(X_tensor.to(device))  # Ensure full data is on device
-#     full_embeddings = full_embeddings.cpu().numpy()
-#
-# # Save embeddings
-# embeddings_path = results_folder / "book_embeddings.npy"
-# np.save(embeddings_path, full_embeddings)
-# print(f"Embeddings saved to {embeddings_path} → shape: {full_embeddings.shape}")
 
 # Optional: reconstruction similarity check
 print("Computing reconstruction similarity on training set...")
