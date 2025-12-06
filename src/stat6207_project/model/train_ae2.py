@@ -24,47 +24,71 @@ print(f"Using device: {device}")
 # ================================
 print("Loading data...")
 
-# Define columns to use (adjust if needed)
-cols_use = [
-    'print_length', 'item_weight', 'length', 'width', 'height',
-    'rating', 'number_of_reviews', 'price', 'Quarters_since_first',
-    'Previous_quarter_qty', 'Current_quarter_qty', 'Avg_discount_cleaned',
-    'book_format_board_book', 'book_format_cards', 'book_format_hardcover',
-    'book_format_library_binding', 'book_format_paperback',
-    'reading_age_adolescence or above', 'reading_age_baby',
-    'reading_age_preadolescence', 'reading_age_preschool', 'reading_age_toddler',
-    'Quarter_num_1', 'Quarter_num_2', 'Quarter_num_3', 'Quarter_num_4'
-]
+# Full dataset (features + target + metadata)
+data_path = data_folder / "target_series_new.csv"
+df_full = pd.read_csv(data_path, dtype={"isbn": str})          # keep isbn as string
 
-# Load full training data
-train_path = data_folder / "train_all_cols_v3.csv"
-df = pd.read_csv(train_path, usecols=cols_use)
+print(f"Loaded {len(df_full):,} rows with {df_full.shape[1]} columns")
 
-print(f"Loaded {len(df):,} rows with {len(cols_use)} features")
+# ------------------------------------------------------------------
+# Define target and feature columns
+# ------------------------------------------------------------------
+target_col = "quantity"
+metadata_cols = ["isbn", "title"]          # keep these for later merging
+feat_cols = [c for c in df_full.columns if c not in (metadata_cols + [target_col])]
 
-# Handle missing values (simple forward/backward fill + zero)
-df = df.fillna(method='ffill').fillna(method='bfill').fillna(0)
+print(f"Using {len(feat_cols)} feature columns for the autoencoder")
+# print(feat_cols)   # uncomment if you want to double-check
 
-# Convert to numpy → torch tensor
-X = df[cols_use].values.astype(np.float32)
-X_tensor = torch.from_numpy(X)
+# ------------------------------------------------------------------
+# Handle missing values (same strategy as before)
+# ------------------------------------------------------------------
+df_full[feat_cols] = (
+    df_full[feat_cols]
+    .fillna(method="ffill")
+    .fillna(method="bfill")
+    .fillna(0)
+)
 
-# Train / Val / Test split (using indices to avoid data leakage across books)
-train_idx, temp_idx = train_test_split(np.arange(len(X)), test_size=0.3, random_state=42, shuffle=True)
-val_idx, test_idx = train_test_split(temp_idx, test_size=0.5, random_state=42)
+# ------------------------------------------------------------------
+# Train / Val / Test split on the *DataFrame* level first
+# (this guarantees you can always recover the original rows/isbn/title)
+# ------------------------------------------------------------------
+# 70% train, 15% val, 15% test  →  total test_size=0.3, then half of that for val
+df_train, df_temp = train_test_split(
+    df_full,
+    test_size=0.3,
+    random_state=42,
+    shuffle=True,
+    stratify=None,          # you can add stratification on e.g. year/quarter if desired
+)
 
-X_train = X_tensor[train_idx]
-X_val   = X_tensor[val_idx]
-X_test  = X_tensor[test_idx]
+df_val, df_test = train_test_split(
+    df_temp,
+    test_size=0.5,          # 15% of total each
+    random_state=42,
+    shuffle=True,
+)
 
-# Move all splits to correct device
+print(f"Train rows : {len(df_train):,}")
+print(f"Val   rows : {len(df_val):,}")
+print(f"Test  rows : {len(df_test):,}")
+
+# ------------------------------------------------------------------
+# Convert ONLY the feature columns to tensors
+# ------------------------------------------------------------------
+X_train = torch.from_numpy(df_train[feat_cols].values.astype(np.float32))
+X_val   = torch.from_numpy(df_val[feat_cols].values.astype(np.float32))
+X_test  = torch.from_numpy(df_test[feat_cols].values.astype(np.float32))
+
+# Move to device
 X_train = X_train.to(device)
 X_val   = X_val.to(device)
 X_test  = X_test.to(device)
 
-print(f"Train set:      {X_train.shape}")
-print(f"Validation set: {X_val.shape}")
-print(f"Test set:       {X_test.shape}")
+print(f"Train tensor : {X_train.shape}")
+print(f"Val   tensor : {X_val.shape}")
+print(f"Test  tensor : {X_test.shape}")
 
 input_dim = X_train.shape[1]
 
@@ -110,18 +134,18 @@ trainer.plot_losses(
 encoder_path = results_folder / "encoder_weights.pth"
 trainer.save_weights(part="encoder", path=encoder_path)
 
-# ================================
-# 7. Extract embeddings from full training set
-# ================================
-print("Extracting embeddings from full training data...")
-with torch.no_grad():
-    full_embeddings = trainer.get_embeddings(X_tensor.to(device))  # Ensure full data is on device
-    full_embeddings = full_embeddings.cpu().numpy()
-
-# Save embeddings
-embeddings_path = results_folder / "book_embeddings.npy"
-np.save(embeddings_path, full_embeddings)
-print(f"Embeddings saved to {embeddings_path} → shape: {full_embeddings.shape}")
+# # ================================
+# # 7. Extract embeddings from full training set
+# # ================================
+# print("Extracting embeddings from full training data...")
+# with torch.no_grad():
+#     full_embeddings = trainer.get_embeddings(X_tensor.to(device))  # Ensure full data is on device
+#     full_embeddings = full_embeddings.cpu().numpy()
+#
+# # Save embeddings
+# embeddings_path = results_folder / "book_embeddings.npy"
+# np.save(embeddings_path, full_embeddings)
+# print(f"Embeddings saved to {embeddings_path} → shape: {full_embeddings.shape}")
 
 # Optional: reconstruction similarity check
 print("Computing reconstruction similarity on training set...")
