@@ -100,10 +100,15 @@ if __name__ == "__main__":
     # For each column in continuous_cols, plot a boxplot showing outliers
     # Now plot a boxplot of np.log1p transformed values, side by side with the original
     # Iterate through each continuous column
+    # --- DISTRIBUTION ANALYSIS ---
+    # For each column in continuous_cols, plot a 2x2 grid of boxplots
     for col in continuous_cols:
-        # Create a figure with 5 side-by-side subplots (1 row, 5 columns)
-        # Increased figure width to accommodate the 5th plot
-        fig, axes = plt.subplots(1, 5, figsize=(25, 6), sharey=False)
+        # Create a 2x2 grid of subplots
+        # sharey=False is crucial because the scales (raw vs log vs z-score) are very different
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10), sharey=False)
+
+        # Flatten axes array for easier indexing (0, 1, 2, 3)
+        axes = axes.flatten()
 
         # 1. Extract original data
         original_data = sales_features[col].to_pandas()
@@ -112,11 +117,11 @@ if __name__ == "__main__":
         # A. Log1p
         log_data = np.log1p(original_data)
 
-        # B. Clipped (Mean +/- 3 STD)
-        mean_val = log_data.mean()
-        std_val = log_data.std()
-        lower_bound = mean_val - 3 * std_val
-        upper_bound = mean_val + 3 * std_val
+        # B. Clipped (Mean +/- 3 STD of LOG data)
+        l_mean = log_data.mean()
+        l_std = log_data.std()
+        lower_bound = l_mean - 3 * l_std
+        upper_bound = l_mean + 3 * l_std
         clipped_data = np.clip(log_data, lower_bound, upper_bound)
 
         # C. Standardized Clipped ((Clipped - Mean) / Std)
@@ -127,43 +132,30 @@ if __name__ == "__main__":
         else:
             std_clipped_data = clipped_data - c_mean
 
-        # D. Standardized Log1p ((Log - Mean) / Std) -> NEW 5th Column
-        l_mean = log_data.mean()
-        l_std = log_data.std()
-        if l_std != 0:
-            std_log_data = (log_data - l_mean) / l_std
-        else:
-            std_log_data = log_data - l_mean
-
         # --- PLOTTING ---
 
-        # 1. Original (Skyblue)
+        # Plot 1: Original (Skyblue) - Top Left
         sns.boxplot(y=original_data, ax=axes[0], color="skyblue")
-        axes[0].set_title("Original")
+        axes[0].set_title(f"1. Original: {col}")
         axes[0].set_ylabel(col)
 
-        # 2. Log1p (Orange)
+        # Plot 2: Log1p (Orange) - Top Right
         sns.boxplot(y=log_data, ax=axes[1], color="orange")
-        axes[1].set_title("Log1p Transformed")
+        axes[1].set_title("2. Log1p Transformed")
         axes[1].set_ylabel("Log Value")
 
-        # 3. Clipped (Green)
+        # Plot 3: Clipped (Green) - Bottom Left
         sns.boxplot(y=clipped_data, ax=axes[2], color="green")
-        axes[2].set_title("Clipped (±3 std)")
-        axes[2].set_ylabel("Clipped Value")
+        axes[2].set_title("3. Clipped (±3 std of Log)")
+        axes[2].set_ylabel("Clipped Log Value")
 
-        # 4. Std Clipped (Purple)
+        # Plot 4: Std Clipped (Purple) - Bottom Right
         sns.boxplot(y=std_clipped_data, ax=axes[3], color="purple")
-        axes[3].set_title("Std Clipped")
-        axes[3].set_ylabel("Z-Score (Clipped)")
-
-        # 5. Std Log1p (Red) -> NEW
-        sns.boxplot(y=std_log_data, ax=axes[4], color="red")
-        axes[4].set_title("Std Log1p")
-        axes[4].set_ylabel("Z-Score (Log)")
+        axes[3].set_title("4. Standardized Clipped")
+        axes[3].set_ylabel("Z-Score")
 
         # Layout adjustments
-        fig.suptitle(f"Distribution Transformations for {col}", fontsize=16)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        fig.suptitle(f"Distribution Analysis: {col}", fontsize=16)
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Make room for suptitle
         plt.show()
 
