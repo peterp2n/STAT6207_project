@@ -1,6 +1,7 @@
 import sqlite3
 from pathlib import Path
 import polars as pl
+import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
     # Setup paths
@@ -26,6 +27,7 @@ if __name__ == "__main__":
            .alias("trandate"),
            ((pl.col("selling_price") * pl.col("quantity") - pl.col("amount"))
             / (pl.col("quantity") * pl.col("selling_price")) * 100)
+           .round(0)
            .clip(lower_bound=0.0)
            .alias("discount_rate"),
            pl.col("channel").str.to_lowercase().alias("channel")
@@ -127,10 +129,11 @@ if __name__ == "__main__":
         ])
     )
 
-    groupby_isbn = join.group_by("isbn").agg([
+    first_trandate_by_isbn = join.group_by("isbn").agg([
         pl.col("trandate").min().alias("first_trandate")
     ])
-    join = join.join(groupby_isbn, on="isbn", how="left")
+
+    join = join.join(first_trandate_by_isbn, on="isbn", how="left")
 
     join = (
         join.with_columns([
@@ -140,11 +143,29 @@ if __name__ == "__main__":
         ])
     )
 
+    join = (
+        join.with_columns([
+            (pl.col("trandate").dt.year().cast(pl.Utf8) + "Q" + pl.col("trandate").dt.quarter().cast(pl.Utf8))
+            .alias("year_quarter"),
+        ])
+    )
+
+    groupby_cols = ["isbn", "year_quarter", "format", "channel"]
     sales_groupby = (
         join
-        .group_by("q_since_first").agg([pl.col("quantity").sum()])
+        .group_by(groupby_cols)
+        .agg([
+            pl.col("quantity").sum().alias("quantity"),
+            pl.col("discount_rate").mean().alias("avg_discount_rate")
+        ])
         .sort(["quantity"], descending=True)
     )
+
+    # Drop quantity before joining
+    join = join.drop(["quantity"])
+    join = join.join(sales_groupby, on=groupby_cols, how="left").drop(["discount_rate"])
+
+
 
     join = join.drop(["trandate", "first_trandate"])
 
@@ -153,7 +174,12 @@ if __name__ == "__main__":
         join.to_dummies(columns=["format", "channel", "q_num"], drop_first=True)
     )
 
-    join = join.select([col for col in join.columns if col != "quantity"] + ["quantity"])
+    join = (
+        join
+        .select(["isbn", "title", "year_quarter"]
+                + [col for col in join.columns if col not in (("isbn", "title", "year_quarter", "quantity"))]
+                + ["quantity"])
+    )
 
     # If you want to see the filtered results:
     dog_man_books = join.filter(dog_man_mask)
@@ -163,8 +189,51 @@ if __name__ == "__main__":
     guinness_books = join.filter(guinness_mask)
     target_books = join.filter(target_mask)
 
-    target_books.write_csv(data_folder / "target_series_new.csv", include_bom=True)
-    target_books.write_excel(data_folder / "target_series_new.xlsx")
+    # target_books.write_csv(data_folder / "target_series_new.csv", include_bom=True)
+    # target_books.write_excel(data_folder / "target_series_new.xlsx")
+
+    plt.figure(figsize=(8, 6))
+    plt.boxplot(target_books["quantity"], vert=False, patch_artist=True,
+                boxprops=dict(facecolor='skyblue', color='black'),
+                medianprops=dict(color='red'),
+                whiskerprops=dict(color='black'),
+                capprops=dict(color='black'),
+                flierprops=dict(marker='o', markerfacecolor='gray', markersize=5, alpha=0.6))
+
+    plt.title("Box Plot of Quantity Sold for Target Books")
+    plt.xlabel("Quantity Sold")
+    plt.grid(axis='x', alpha=0.75)
+    plt.tight_layout()
+    plt.show()
+
+    plt.figure(figsize=(8, 6))
+    plt.boxplot(target_books["q_since_first"], vert=False, patch_artist=True,
+                boxprops=dict(facecolor='skyblue', color='black'),
+                medianprops=dict(color='red'),
+                whiskerprops=dict(color='black'),
+                capprops=dict(color='black'),
+                flierprops=dict(marker='o', markerfacecolor='gray', markersize=5, alpha=0.6))
+
+    plt.title("Box Plot of Quarters since First for Target Books")
+    plt.xlabel("Quantity Sold")
+    plt.grid(axis='x', alpha=0.75)
+    plt.tight_layout()
+    plt.show()
+
+    plt.figure(figsize=(8, 6))
+    plt.boxplot(target_books["avg_discount_rate"], vert=False, patch_artist=True,
+                boxprops=dict(facecolor='skyblue', color='black'),
+                medianprops=dict(color='red'),
+                whiskerprops=dict(color='black'),
+                capprops=dict(color='black'),
+                flierprops=dict(marker='o', markerfacecolor='gray', markersize=5, alpha=0.6))
+
+    plt.title("Box Plot of Avg Discount Rate Sold for Target Books")
+    plt.xlabel("Quantity Sold")
+    plt.grid(axis='x', alpha=0.75)
+    plt.tight_layout()
+    plt.show()
+
 
 
     print("end")
