@@ -4,9 +4,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
-from autoencoder import AutoEncoder
-from autoencoder_trainer import AutoEncoderTrainer
-from autoencoder_trainer import load_encoder_weights
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 from regressor import Regressor
@@ -101,12 +98,13 @@ if __name__ == "__main__":
         "quantity", "q_since_first", "discount_rate"
     ]
 
-
+    show = False
     for col in transform_cols:
         df_train[col] = np.log1p(df_train[col])
         df_train[col].plot.box()
         plt.title(f"Boxplot of {col} after log1p transformation")
-        plt.show()
+        if show:
+            plt.show()
 
         train_mean = df_train[col].mean()
         train_std = df_train[col].std()
@@ -116,10 +114,12 @@ if __name__ == "__main__":
 
         df_val[col].plot.box()
         plt.title(f"Boxplot of {col} in Val set after log1p and standardization")
-        plt.show()
+        if show:
+            plt.show()
         df_test[col].plot.box()
         plt.title(f"Boxplot of {col} in Test set after log1p and standardization")
-        plt.show()
+        if show:
+            plt.show()
 
     print(f"Train rows : {len(df_train):,}")
     print(f"Val   rows : {len(df_val):,}")
@@ -164,18 +164,21 @@ if __name__ == "__main__":
     #     device=device
     # )
     # print("Trained encoder loaded and ready for embedding extraction")
+    batch_size = 128
+    epochs = 50
+    learning_rate = 0.001
+    drop = 0
+    decay = 1e-3
+
     # Training the regressor
-    model = Regressor(input_dim=input_dim).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    model = Regressor(input_dim=input_dim, dropout=drop).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=decay)
     loss_fn = nn.MSELoss()
 
-    batch_size = 64
     train_ds = TensorDataset(X_train, y_train)
     train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     val_ds = TensorDataset(X_val, y_val)
     val_dl = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
-
-    epochs = 100  # Adjust as needed
 
     train_rmses = []
     val_rmses = []
@@ -236,6 +239,17 @@ if __name__ == "__main__":
 
     # After loop
     plot_rmse_curve(train_rmses, val_rmses, best_epoch=best_epoch)
+
+    target_books_new = pd.read_csv(data_folder / "target_series_new.csv", dtype={"isbn": "string"})
+    model.load_state_dict(torch.load("results/regressor_best.pth"))
+    model.eval()
+    with torch.no_grad():
+        X_all = torch.from_numpy(
+            target_books_new[feat_cols].values.astype(np.float32)
+        ).to(device)
+        preds_all = model(X_all).cpu().numpy()
+    target_books_new["pred_quantity"] = preds_all
+
 
     # Optional: Save the model
     # torch.save(model.state_dict(), results_folder / "regressor_weights.pth")
