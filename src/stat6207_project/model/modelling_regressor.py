@@ -95,7 +95,7 @@ if __name__ == "__main__":
     )
 
     transform_cols = [
-        "quantity", "q_since_first", "discount_rate"
+        "q_since_first", "discount_rate"
     ]
 
     show = False
@@ -137,9 +137,24 @@ if __name__ == "__main__":
     X_val = torch.from_numpy(df_val[feat_cols].values.astype(np.float32))
     X_test = torch.from_numpy(df_test[feat_cols].values.astype(np.float32))
 
-    y_train = torch.from_numpy(df_train[target_col].values.astype(np.float32))
-    y_val = torch.from_numpy(df_val[target_col].values.astype(np.float32))
-    y_test = torch.from_numpy(df_test[target_col].values.astype(np.float32))
+    # Step 1: Log-transform the target in all splits
+    qty_train_log = np.log1p(df_train[target_col])
+    qty_val_log = np.log1p(df_val[target_col])
+    qty_test_log = np.log1p(df_test[target_col])
+
+    # Step 2: Fit StandardScaler only on training (log-transformed) targets
+    train_mean = qty_train_log.mean()
+    train_std = qty_train_log.std()  # usually very close to 1 after log1p
+
+    # Step 3: Standardize all splits with training statistics
+    y_train = ((qty_train_log - train_mean) / train_std).astype(np.float32).to_numpy()
+    y_val = ((qty_val_log - train_mean) / train_std).astype(np.float32).to_numpy()
+    y_test = ((qty_test_log - train_mean) / train_std).astype(np.float32).to_numpy()
+
+    # Convert to tensors as before
+    y_train = torch.from_numpy(y_train).to(device)
+    y_val = torch.from_numpy(y_val).to(device)
+    y_test = torch.from_numpy(y_test).to(device)
 
     # Move to device
     X_train = X_train.to(device)
@@ -167,7 +182,7 @@ if __name__ == "__main__":
     batch_size = 128
     epochs = 50
     learning_rate = 0.001
-    drop = 0
+    drop = 0.5
     decay = 1e-3
 
     # Training the regressor
@@ -248,8 +263,8 @@ if __name__ == "__main__":
             target_books_new[feat_cols].values.astype(np.float32)
         ).to(device)
         preds_all = model(X_all).cpu().numpy()
-    target_books_new["pred_quantity"] = preds_all
-
+    target_books_new["pred_quantity"] = np.expm1(preds_all * preds_all.std() + preds_all.mean())
+    print(target_books_new["pred_quantity"].to_numpy().reshape(-1, 1))
 
     # Optional: Save the model
     # torch.save(model.state_dict(), results_folder / "regressor_weights.pth")
