@@ -163,8 +163,8 @@ if __name__ == "__main__":
     guinness_books = join.filter(guinness_mask)
     target_books = join.filter(target_mask)
 
-    target_books.write_csv(data_folder / "target_books.csv", include_bom=True)
-    target_books.write_excel(data_folder / "target_books.xlsx")
+    target_books.write_csv(data_folder / "target_books_new.csv", include_bom=True)
+    target_books.write_excel(data_folder / "target_books_new.xlsx")
 
 
     print("end")
