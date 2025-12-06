@@ -164,3 +164,22 @@ class AutoEncoderTrainer:
         recon_norm = torch.nn.functional.normalize(reconstructed, p=2, dim=1)
         cos_sim = torch.sum(orig_norm * recon_norm, dim=1)
         return cos_sim
+
+def load_encoder_weights(input_dim: int,
+                         encoding_dim: int = 8,
+                         weights_path: str = "results/encoder_weights.pth",
+                         device: str = "cpu") -> torch.nn.Module:
+    """
+    Loads the trained encoder (as a standalone nn.Module) from the weights
+    saved by train_ae2.py.
+    Returns only the encoder part so you can directly use it for embeddings.
+    """
+    encoder = torch.nn.Sequential(
+        torch.nn.Linear(input_dim, 16),
+        torch.nn.LeakyReLU(inplace=True),
+        torch.nn.Linear(16, encoding_dim),
+    ).to(device)
+
+    encoder.load_state_dict(torch.load(weights_path, map_location=device))
+    encoder.eval()
+    return encoder
