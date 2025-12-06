@@ -5,7 +5,6 @@ import polars as pl
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-
 if __name__ == "__main__":
 
     data_folder = Path("data")
@@ -28,29 +27,68 @@ if __name__ == "__main__":
 
     sns.set_theme(style="whitegrid")
 
-    # --- PART 1: Categorical Plots ---
-    for col in ["format", "channel", "q_num"]:
-        format_counts = (
-            sales_features.group_by(col)
+    # --- PART 1: q_num Plot (Unchanged) ---
+    col = "q_num"
+    format_counts = (
+        sales_features.group_by(col)
+        .agg(pl.col("quantity").sum().alias("total_quantity"))
+        .to_pandas()
+    )
+
+    plt.figure(figsize=(8, 6))
+    sns.barplot(
+        data=format_counts,
+        x=col,
+        y="total_quantity",
+        hue=col,
+        legend=False  # Disable legend as it's redundant for x-axis labels
+    )
+    plt.title(f"Total Quantity Sold by {col.capitalize()} for Target Books")
+    plt.xlabel(col.capitalize())
+    plt.ylabel("Total Quantity Sold")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+    # --- PART 2: Stacked Bar Charts (X-axis = q_num, Stacks = Category) ---
+
+    categorical_cols = ["format", "channel"]
+
+    for cat_col in categorical_cols:
+        # 1. Aggregate Data: Group by q_num AND Category
+        stacked_data = (
+            sales_features
+            .group_by(["q_num", cat_col])
             .agg(pl.col("quantity").sum().alias("total_quantity"))
+            .sort(cat_col)  # Sort stacks consistently
             .to_pandas()
         )
 
-        plt.figure(figsize=(8, 6))
-        sns.barplot(
-            data=format_counts,
-            x=col,
-            y="total_quantity",
-            hue=col
+        # 2. Pivot for Stacked Plotting
+        # Index = q_num (X-axis), Columns = Category (Stacks), Values = Quantity
+        pivot_df = stacked_data.pivot(index="q_num", columns=cat_col, values="total_quantity")
+
+        # Fill NaNs with 0
+        pivot_df = pivot_df.fillna(0)
+
+        # 3. Plot Stacked Bar Chart
+        ax = pivot_df.plot(
+            kind="bar",
+            stacked=True,
+            figsize=(10, 6),
+            colormap="viridis"  # distinct colors for categories
         )
-        plt.title(f"Total Quantity Sold by {col.capitalize()} for Target Books")
-        plt.xlabel(col.capitalize())
+
+        plt.title(f"Total Quantity Sold by Quartile (Stacked by {cat_col.capitalize()})")
+        plt.xlabel("Quartile (q_num)")
         plt.ylabel("Total Quantity Sold")
-        plt.xticks(rotation=45)
+        plt.xticks(rotation=0)  # Keep Q1, Q2 etc horizontal
+        plt.legend(title=cat_col.capitalize())
         plt.tight_layout()
         plt.show()
 
-    # Define the columns of interest
+    # --- PART 3: Distribution Analysis (Boxplots & Heatmap) ---
+
     continuous_cols = [
         "q_since_first",
         "avg_discount_rate",
@@ -64,11 +102,8 @@ if __name__ == "__main__":
         "quantity"
     ]
 
-    # Dictionary to collect the final transformed data for the heatmap
     transformed_data_collection = {}
 
-    # --- PART 2: Distribution Analysis (Boxplots) ---
-    # We run this FIRST to calculate and collect the transformed values
     for col in continuous_cols:
         fig, axes = plt.subplots(2, 2, figsize=(12, 10), sharey=False)
         axes = axes.flatten()
@@ -77,17 +112,14 @@ if __name__ == "__main__":
         original_data = sales_features[col].to_pandas()
 
         # 2. Calculations
-        # A. Log1p
         log_data = np.log1p(original_data)
 
-        # B. Clipped (Mean +/- 3 STD of LOG data)
         l_mean = log_data.mean()
         l_std = log_data.std()
         lower_bound = l_mean - 3 * l_std
         upper_bound = l_mean + 3 * l_std
         clipped_data = np.clip(log_data, lower_bound, upper_bound)
 
-        # C. Standardized Clipped ((Clipped - Mean) / Std)
         c_mean = clipped_data.mean()
         c_std = clipped_data.std()
         if c_std != 0:
@@ -95,27 +127,21 @@ if __name__ == "__main__":
         else:
             std_clipped_data = clipped_data - c_mean
 
-        # --- SAVE DATA FOR HEATMAP ---
-        # Store the "Plot 4" data (Standardized Clipped Log1p)
         transformed_data_collection[col] = std_clipped_data
 
         # --- PLOTTING ---
-        # Plot 1: Original (Skyblue)
         sns.boxplot(y=original_data, ax=axes[0], color="skyblue")
         axes[0].set_title(f"1. Original: {col}")
         axes[0].set_ylabel(col)
 
-        # Plot 2: Log1p (Orange)
         sns.boxplot(y=log_data, ax=axes[1], color="orange")
         axes[1].set_title("2. Log1p Transformed")
         axes[1].set_ylabel("Log Value")
 
-        # Plot 3: Clipped (Green)
         sns.boxplot(y=clipped_data, ax=axes[2], color="green")
         axes[2].set_title("3. Clipped (±3 std of Log)")
         axes[2].set_ylabel("Clipped Log Value")
 
-        # Plot 4: Std Clipped (Purple)
         sns.boxplot(y=std_clipped_data, ax=axes[3], color="purple")
         axes[3].set_title("4. Standardized Clipped")
         axes[3].set_ylabel("Z-Score")
@@ -124,12 +150,8 @@ if __name__ == "__main__":
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         plt.show()
 
-    # --- PART 3: Correlation Heatmap (Moved After) ---
-    # Create a DataFrame from the collected TRANSFORMED data
+    # --- PART 4: Correlation Heatmap ---
     transformed_df = pd.DataFrame(transformed_data_collection)
-
-    # Calculate correlation matrix on the transformed data
-    # We use dropna() to mimic the previous 'drop_nulls()' behavior for cleaner correlation
     corr_matrix = transformed_df.dropna().corr()
 
     plt.figure(figsize=(12, 10))
@@ -147,4 +169,3 @@ if __name__ == "__main__":
     plt.title("Correlation Matrix of Transformed Features\n(Standardized + Clipped + Log1p)")
     plt.tight_layout()
     plt.show()
-
