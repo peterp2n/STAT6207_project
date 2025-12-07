@@ -169,6 +169,42 @@ if __name__ == "__main__":
     plt.show()
 
     # ------------------------------------------------------------------
+    # SCATTERPLOTS: Feature vs Quantity (The Reality Check)
+    # ------------------------------------------------------------------
+    # We compare the chaotic raw world (Blue) vs the organized model world (Orange)
+    scatter_features = ["print_length", "height"]
+
+    # Ensure we have the transformed quantity for plotting
+    # (It was calculated in the Heatmap section as 'qty_trans')
+
+    print("\nGenerating Scatterplots: Feature vs Quantity...")
+
+    for col in scatter_features:
+        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+        # 1. The Raw World (Blue)
+        # Using pure raw data. This shows us the outliers and the skew.
+        axes[0].scatter(raw_train[col], raw_train["quantity"],
+                        alpha=0.6, c='#1f77b4', edgecolors='none', s=15)
+        axes[0].set_title(f"Raw Reality: {col} vs Quantity", fontsize=14, fontweight='medium')
+        axes[0].set_xlabel(f"Raw {col}")
+        axes[0].set_ylabel("Raw Quantity")
+        axes[0].grid(True, linestyle='--', alpha=0.3)
+
+        # 2. The Transformed World (Orange)
+        # Using the processed data (df_train) and the transformed quantity (qty_trans)
+        # This is exactly what the neural network sees.
+        axes[1].scatter(df_train[col], transformed_train["quantity"],
+                        alpha=0.6, c='#ff7f0e', edgecolors='none', s=15)
+        axes[1].set_title(f"Model View: Transformed {col} vs Quantity", fontsize=14, fontweight='medium')
+        axes[1].set_xlabel(f"Standardized {col} (Sigma)")
+        axes[1].set_ylabel("Standardized Quantity (Sigma)")
+        axes[1].grid(True, linestyle='--', alpha=0.3)
+
+        plt.tight_layout()
+        plt.show()
+
+    # ------------------------------------------------------------------
     # Model Prep
     # ------------------------------------------------------------------
     # Stacked Bars
