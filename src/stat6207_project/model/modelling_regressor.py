@@ -9,13 +9,19 @@ from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 from regressor import Regressor
 
-device = torch.device("mps")
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
 
 
 def apply_imputation(df_target, source_medians, fallback_medians, impute_cols):
     """
     Applies series-specific medians for selected columns.
     """
+    # Join the target with the learned medians
     df_merged = df_target.join(source_medians, on="series", rsuffix="_median")
 
     for col in impute_cols:
@@ -65,25 +71,13 @@ if __name__ == "__main__":
         "avg_discount_rate": "float32"
     })
 
-    # ------------------------------------------------------------------
-    # STEVE JOBS FIX: Capture the "Missingness" signal BEFORE we polish
-    # ------------------------------------------------------------------
-    # We explicitly tell the model: "We don't know the length of this one."
-    # This allows us to use the Median for the value (neutralizing the flip)
-    # while still letting the model learn that "Unknown Length" is a special category.
-    flag_cols = ["print_length", "height"]
-    for col in flag_cols:
-        df_full[f"{col}_is_missing"] = df_full[col].isna().astype(np.float32)
-
     df_train, df_temp = train_test_split(df_full, test_size=0.3, random_state=42, shuffle=True)
     df_val, df_test = train_test_split(df_temp, test_size=0.5, random_state=42, shuffle=True)
 
     # ------------------------------------------------------------------
     # 1. Configuration: Imputation Split
     # ------------------------------------------------------------------
-    # We moved print_length and height BACK to impute_cols.
-    # Why? Because Median (Average) is "safe". It sits in the middle.
-    # It does not pull the regression line up or down. It stops the flip.
+    # We are using Series Median for everything.
     impute_cols = ["length", "width", "rating", "item_weight", "price", "print_length", "height"]
 
     transform_cols = ["q_since_first", "avg_discount_rate", "print_length", "length", "width", "height", "rating",
@@ -94,7 +88,7 @@ if __name__ == "__main__":
     series_medians = df_train.groupby("series")[impute_cols].median()
     global_medians = df_train[impute_cols].median()
 
-    # 3. Apply Imputation (Median for ALL, No more Zero filling)
+    # 3. Apply Imputation
     print("Imputing missing values...")
     for df in [df_train, df_val, df_test]:
         apply_imputation(df, series_medians, global_medians, impute_cols)
@@ -196,8 +190,6 @@ if __name__ == "__main__":
     target_col = "quantity"
     feat_cols = [c for c in df_train.columns if c not in ["isbn", "title", "year_quarter", "series", target_col]]
 
-    # Note: feat_cols AUTOMATICALLY includes our new "print_length_is_missing" flags
-    # because they are in df_train and not in the excluded list.
     print(f"Features being used: {feat_cols}")
 
     X_train = torch.from_numpy(df_train[feat_cols].to_numpy().astype(np.float32)).to(device)
@@ -254,21 +246,17 @@ if __name__ == "__main__":
     target_books = pd.read_csv(data_folder / "target_books_new.csv", dtype={"isbn": "string"})
     final_ids = target_books[["isbn", "title"]].copy()
 
-    # 1. APPLY THE SAME FLAG LOGIC
-    for col in flag_cols:
-        target_books[f"{col}_is_missing"] = target_books[col].isna().astype(np.float32)
-
-    # 2. Impute (Median where valid)
+    # 1. Impute (Median where valid)
     target_books = apply_imputation(target_books, series_medians, global_medians, impute_cols)
 
-    # 3. Transform
+    # 2. Transform
     for col in transform_cols:
         s = train_stats[col]
         vals = target_books[col].to_numpy().astype(np.float32)
         if s["log"]: vals = np.log1p(vals)
         target_books[col] = np.clip((vals - s["mean"]) / s["std"], -3, 3)
 
-    # 4. Predict
+    # 3. Predict
     target_books = pd.get_dummies(target_books, columns=dummy_cols, drop_first=True)
     X_final = torch.from_numpy(target_books.reindex(columns=feat_cols, fill_value=0.0).values.astype(np.float32)).to(
         device)
