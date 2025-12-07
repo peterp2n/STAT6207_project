@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import RobustScaler
 from regressor import Regressor
 
 if torch.backends.mps.is_available():
@@ -97,7 +98,9 @@ if __name__ == "__main__":
     # 4. Transformation Logic
     # ------------------------------------------------------------------
     log_cols = ["print_length", "length", "width", "height", "price", "q_since_first"]
-    train_stats = {}
+
+    # NEW: Dictionary to store the fitted RobustScaler objects
+    scalers = {}
     transformed_train = {}
 
     print("\nTransforming features...")
@@ -107,52 +110,74 @@ if __name__ == "__main__":
         test_np = df_test[col].to_numpy().astype(np.float32)
 
         is_log = col in log_cols
+
+        # 1. Log Transform
         if is_log:
             train_np = np.log1p(train_np)
             val_np = np.log1p(val_np)
             test_np = np.log1p(test_np)
 
-        _mean = train_np.mean()
-        _std = train_np.std() + 1e-8
-        train_stats[col] = {"mean": _mean, "std": _std, "log": is_log}
+        # 2. Robust Scaling
+        # We MUST save this scaler to apply the exact same median/IQR to the final test set
+        scaler = RobustScaler()
+        train_np = scaler.fit_transform(train_np.reshape(-1, 1)).flatten()
+        val_np = scaler.transform(val_np.reshape(-1, 1)).flatten()
+        test_np = scaler.transform(test_np.reshape(-1, 1)).flatten()
 
-        # Standardize & Clip
-        train_np = np.clip((train_np - _mean) / _std, -3, 3)
-        val_np = np.clip((val_np - _mean) / _std, -3, 3)
-        test_np = np.clip((test_np - _mean) / _std, -3, 3)
+        # Store the scaler for later use
+        scalers[col] = scaler
 
+        # 3. Clip Predictors
+        # Your previous logic: Clip X to prevent gradient instability
+        train_np = np.clip(train_np, -5, 5)
+        val_np = np.clip(val_np, -5, 5)
+        test_np = np.clip(test_np, -5, 5)
+
+        # Assign back
         df_train[col] = train_np
         df_val[col] = val_np
         df_test[col] = test_np
         transformed_train[col] = train_np
 
     # ------------------------------------------------------------------
-    # 5. Visual Validation: Boxplots
+    # Target Transformation for Visualization & Consistency (RobustScaler)
     # ------------------------------------------------------------------
-    print("\nGenerating Side-by-Side Boxplots...")
-    for col in transform_cols:
-        fig, axes = plt.subplots(1, 2, figsize=(10, 6), sharey=False)  # Different scales
+    print("Fitting target RobustScaler on training data for consistent visualization...")
 
-        # Plot Raw (original data, NaNs handled automatically by plot)
-        raw_train[col].plot.box(ax=axes[0])
-        axes[0].set_title(f"Raw {col} (Train Set)")
-        axes[0].set_ylabel(col)
+    # Fit the same y_scaler that will be used later in training
+    y_scaler = RobustScaler()
+    qty_train_log = np.log1p(df_train["quantity"].values.reshape(-1, 1))
+    y_train_scaled_for_viz = y_scaler.fit_transform(qty_train_log)  # Shape: (n, 1)
 
-        # Plot Processed (Imputed + Transformed)
-        df_train[col].plot.box(ax=axes[1])
-        axes[1].set_title(f"Preprocessed {col} (Train Set)")
-        axes[1].set_ylabel("Transformed Value (Std)")
+    # Extract center (median) and scale (IQR) for future inverse transform
+    y_center = y_scaler.center_[0]
+    y_scale = y_scaler.scale_[0]
 
-        plt.suptitle(f"Preprocessing Effect: {col}", fontsize=14)
-        plt.tight_layout()
-        plt.show()
+    # Flatten and clip for visualization consistency (same as model input)
+    qty_trans = np.clip(y_train_scaled_for_viz.flatten(), -5, 5)
 
-    # ------------------------------------------------------------------
-    # HEATMAP
-    # ------------------------------------------------------------------
-    qty_raw = raw_train["quantity"].to_numpy().astype(np.float32)
-    qty_trans = np.clip((np.log1p(qty_raw) - np.log1p(qty_raw).mean()) / np.log1p(qty_raw).std(), -3, 3)
+    # Store for correlation heatmap and scatterplots
     transformed_train["quantity"] = qty_trans
+
+    print(f"Target transformed: log(quantity) → RobustScaler (median={y_center:.4f}, IQR={y_scale:.4f})")
+
+    # ------------------------------------------------------------------
+    # HEATMAP: Now Using True Model Target (log1p + RobustScaler + Clipped)
+    # ------------------------------------------------------------------
+    corr_before = raw_train.corr()
+    corr_after = pd.DataFrame(transformed_train).corr()
+
+    fig, axes = plt.subplots(1, 2, figsize=(32, 14))
+    heatmap_args = {"annot": True, "fmt": ".2f", "cmap": "coolwarm", "center": 0, "square": True}
+
+    sns.heatmap(corr_before, ax=axes[0], **heatmap_args)
+    axes[0].set_title("Correlation: Raw Train Data (Before)", fontsize=18)
+
+    sns.heatmap(corr_after, ax=axes[1], **heatmap_args)
+    axes[1].set_title("Correlation: After log1p + Robust Scaling (Outlier-Resistant)", fontsize=18)
+
+    plt.tight_layout()
+    plt.show()
 
     corr_before = raw_train.corr()
     corr_after = pd.DataFrame(transformed_train).corr()
@@ -196,9 +221,9 @@ if __name__ == "__main__":
         # This is exactly what the neural network sees.
         axes[1].scatter(df_train[col], transformed_train["quantity"],
                         alpha=0.6, c='#ff7f0e', edgecolors='none', s=15)
-        axes[1].set_title(f"Model View: Transformed {col} vs Quantity", fontsize=14, fontweight='medium')
-        axes[1].set_xlabel(f"Standardized {col} (Sigma)")
-        axes[1].set_ylabel("Standardized Quantity (Sigma)")
+        axes[1].set_title(f"Model View: Robust-Scaled {col} vs Target", fontsize=14, fontweight='medium')
+        axes[1].set_xlabel(f"Robust-Scaled {col} (IQR Units)")
+        axes[1].set_ylabel("Robust-Scaled log(Quantity) (IQR Units)")
         axes[1].grid(True, linestyle='--', alpha=0.3)
 
         plt.tight_layout()
@@ -232,15 +257,23 @@ if __name__ == "__main__":
     X_val = torch.from_numpy(df_val[feat_cols].to_numpy().astype(np.float32)).to(device)
     X_test = torch.from_numpy(df_test[feat_cols].to_numpy().astype(np.float32)).to(device)
 
-    # Target Transform
-    qty_log_train = np.log1p(df_train[target_col])
-    target_mean, target_std = qty_log_train.mean(), qty_log_train.std()
+    # ------------------------------------------------------------------
+    # Target Transform (UPDATED: Robust Scaler)
+    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Target Transform — Using Pre-Fitted y_scaler (Already Done for Visualization)
+    # ------------------------------------------------------------------
+    qty_val_log = np.log1p(df_val["quantity"].values.reshape(-1, 1))
+    qty_test_log = np.log1p(df_test["quantity"].values.reshape(-1, 1))
 
-    y_train = torch.from_numpy(((qty_log_train - target_mean) / target_std).to_numpy().astype(np.float32)).to(device)
-    y_val = torch.from_numpy(
-        ((np.log1p(df_val[target_col]) - target_mean) / target_std).to_numpy().astype(np.float32)).to(device)
-    y_test = torch.from_numpy(
-        ((np.log1p(df_test[target_col]) - target_mean) / target_std).to_numpy().astype(np.float32)).to(device)
+    # Transform val/test using the already-fitted scaler
+    y_val_scaled = y_scaler.transform(qty_val_log).flatten()
+    y_test_scaled = y_scaler.transform(qty_test_log).flatten()
+
+    # Clip all targets consistently with training
+    y_train = torch.from_numpy(np.clip(y_train_scaled_for_viz.flatten(), -5, 5).astype(np.float32)).to(device)
+    y_val = torch.from_numpy(np.clip(y_val_scaled, -5, 5).astype(np.float32)).to(device)
+    y_test = torch.from_numpy(np.clip(y_test_scaled, -5, 5).astype(np.float32)).to(device)
 
     # ------------------------------------------------------------------
     # Training
@@ -285,12 +318,21 @@ if __name__ == "__main__":
     # 1. Impute (Median where valid)
     target_books = apply_imputation(target_books, series_medians, global_medians, impute_cols)
 
-    # 2. Transform
+    # 2. Transform (CORRECTED)
     for col in transform_cols:
-        s = train_stats[col]
+        # Get raw values
         vals = target_books[col].to_numpy().astype(np.float32)
-        if s["log"]: vals = np.log1p(vals)
-        target_books[col] = np.clip((vals - s["mean"]) / s["std"], -3, 3)
+
+        # A. Log Transform (Check global list directly)
+        if col in log_cols:
+            vals = np.log1p(vals)
+
+        # B. Robust Scale (Reuse the fitted scaler from training)
+        if col in scalers:
+            vals = scalers[col].transform(vals.reshape(-1, 1)).flatten()
+
+        # C. Clip (Same threshold as training)
+        target_books[col] = np.clip(vals, -5, 5)
 
     # 3. Predict
     target_books = pd.get_dummies(target_books, columns=dummy_cols, drop_first=True)
@@ -301,6 +343,11 @@ if __name__ == "__main__":
     with torch.no_grad():
         preds = model(X_final).cpu().numpy().flatten()
 
-    final_ids["pred_quantity"] = np.expm1(preds * target_std + target_mean).round(0).astype(int)
+    # Inverse Robust Scale: (preds * IQR) + Median
+    pred_log = preds * y_scale + y_center
+
+    # Inverse Log: expm1
+    final_ids["pred_quantity"] = np.expm1(pred_log).round(0).astype(int)
+
     print("\nFinal Predictions:\n", final_ids.head(10))
     final_ids.to_csv("results/final_predictions.csv", index=False)
