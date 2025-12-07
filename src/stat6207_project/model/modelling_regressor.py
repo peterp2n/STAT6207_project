@@ -301,7 +301,7 @@ if __name__ == "__main__":
     })
 
     df_train, df_temp = train_test_split(df_full, test_size=0.2, random_state=SEED, shuffle=True)
-    df_val, df_test = train_test_split(df_temp, test_size=0.5, random_state=SEED, shuffle=True)
+    df_val, df_test = train_test_split(df_temp, test_size=0.5, random_state=SEED+1, shuffle=True)
 
     # Store raw data for visualization before transformation
     raw_train = df_train[TRANSFORM_COLS + [TARGET_COL]].copy()
@@ -422,6 +422,11 @@ if __name__ == "__main__":
         (df_train_viz.groupby(["q_num", cat])["quantity_raw"].sum().unstack().fillna(0)
          .plot(kind="bar", stacked=True, figsize=(10, 6), colormap="viridis", edgecolor="black"))
         plt.title(f"Sales by {cat}")
+        plt.xticks(
+            rotation=0,
+           ha="center",
+           va="top"
+        )
         plt.tight_layout()
         plt.show()
 
