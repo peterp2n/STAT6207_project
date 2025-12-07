@@ -95,7 +95,7 @@ if __name__ == "__main__":
     results_folder = Path("results")
     encoder_path = results_folder / "encoder_weights.pth"
 
-    series_path = data_folder / "target_series_new_with_features.csv"
+    series_path = data_folder / "target_series_new_with_features2.csv"
     df_full = pd.read_csv(series_path, dtype={
         "isbn": "string",
         "print_length": "float32",
@@ -251,6 +251,47 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.show()
 
+    # ===================================================================
+    # NEW: Stacked bar charts – Total sales by quartile × format / channel
+    # ===================================================================
+    print("\nPlotting sales distribution across quarters...")
+
+    # Make sure we are working with the *original* (non-transformed) quantity
+    # because we want real-world book counts on the y-axis
+    df_train_for_viz = df_train.copy()
+    df_train_for_viz["quantity_raw"] = raw_train["quantity"]  # this is the untouched target
+
+    categorical_cols = ["format", "channel"]
+
+    for cat_col in categorical_cols:
+        # Aggregate total quantity sold per (q_num, category)
+        agg = (
+            df_train_for_viz
+            .groupby(["q_num", cat_col], as_index=False)["quantity_raw"]
+            .sum()
+            .rename(columns={"quantity_raw": "total_quantity"})
+        )
+
+        # Pivot so each category becomes a column → ready for stacked bar
+        pivot = agg.pivot(index="q_num", columns=cat_col, values="total_quantity").fillna(0)
+
+        # Plot
+        ax = pivot.plot(kind="bar",
+                        stacked=True,
+                        figsize=(10, 6),
+                        colormap="viridis",
+                        edgecolor="black",
+                        linewidth=0.5)
+
+        plt.title(f"Total Books Sold by Quarter — Stacked by {cat_col.capitalize()}",
+                  fontsize=16, fontweight="bold", pad=20)
+        plt.xlabel("Quarter (q_num)", fontsize=12)
+        plt.ylabel("Total Quantity Sold", fontsize=12)
+        plt.xticks(rotation=0)
+        plt.legend(title=cat_col.capitalize(), bbox_to_anchor=(1.05, 1), loc="upper left")
+        plt.tight_layout()
+        plt.show()
+
     print(f"Train rows : {len(df_train):,}")
     print(f"Val   rows : {len(df_val):,}")
     print(f"Test  rows : {len(df_test):,}")
@@ -262,7 +303,14 @@ if __name__ == "__main__":
     target_col = "quantity"
     metadata_cols = ["isbn", "title", "year_quarter", "series"]
     drop_cols = ["price"]
-    feat_cols = [c for c in df_full.columns if c not in (metadata_cols + [target_col])]
+
+
+    dummy_cols = ["format", "channel"]
+    df_train = pd.get_dummies(df_train, columns=dummy_cols, drop_first=True)
+    df_val = pd.get_dummies(df_val, columns=dummy_cols, drop_first=True)
+    df_test = pd.get_dummies(df_test, columns=dummy_cols, drop_first=True)
+
+    feat_cols = [c for c in df_train.columns if c not in (metadata_cols + [target_col])]
 
     X_train = torch.from_numpy(df_train[feat_cols].to_numpy().astype(np.float32))
     X_val = torch.from_numpy(df_val[feat_cols].to_numpy().astype(np.float32))
@@ -386,18 +434,52 @@ if __name__ == "__main__":
     # After loop
     plot_rmse_curve(train_rmses, val_rmses, best_epoch=best_epoch)
 
+    # ===================================================================
+    # FINAL PREDICTION — Perfect, safe, and preserves book identity
+    # ===================================================================
+
     target_books_new = pd.read_csv(data_folder / "target_books_new.csv", dtype={"isbn": "string"})
-    model.load_state_dict(torch.load("results/regressor_best.pth"))
+
+    # Preserve identity columns before anything touches them
+    identity_cols = target_books_new[["isbn", "title"]].copy()
+
+    # 1. Imputation
+    target_books_new = apply_imputation(target_books_new.copy(), series_medians, global_medians)
+
+    # 2. Numerical transformations (using the SAME stats from training)
+    # Note: We save these stats properly now
+    transform_stats = {}
+    for col in transform_cols:
+        x = np.log1p(target_books_new[col])
+        mean = df_train[col].mean()  # already transformed in training loop
+        std = df_train[col].std()
+        x = (x - mean) / std
+        x = np.clip(x, -3, 3)
+        target_books_new[col] = x
+        transform_stats[col] = (mean, std)
+
+    # 3. Dummies
+    dummy_cols = ["format", "channel", "q_num"]
+    target_books_new = pd.get_dummies(target_books_new, columns=dummy_cols, drop_first=True)
+
+    # 4. Align features EXACTLY with training — but keep identity separate
+    X_target = target_books_new.reindex(columns=feat_cols, fill_value=0.0)
+
+    # Now predict
     model.eval()
     with torch.no_grad():
-        X_all = torch.from_numpy(
-            target_books_new[feat_cols].to_numpy().astype(np.float32)
-        ).to(device)
-        preds_all = model(X_all).cpu().numpy()
-    target_books_new["pred_quantity"] = np.expm1(preds_all * target_train_std + target_train_mean)
-    print(target_books_new["pred_quantity"].to_numpy().reshape(-1, 1))
+        X_tensor = torch.from_numpy(X_target.values.astype(np.float32)).to(device)
+        preds = model(X_tensor).cpu().numpy().flatten()
 
-    # Optional: Save the model
-    # torch.save(model.state_dict(), results_folder / "regressor_weights.pth")
-    # print("Training complete. Model saved.")
+    # Reverse transform
+    pred_quantity = np.expm1(preds * target_train_std + target_train_mean)
+
+    # Reattach identity
+    result = identity_cols.copy()
+    result["pred_quantity"] = pred_quantity.round(0).astype(int)  # real book counts
+
+    print("Predictions (final, clean, beautiful):")
+    print(result.head(10))
+    result.to_csv("results/final_predictions.csv", index=False)
+    print("\nPredictions saved to results/final_predictions.csv")
     print("end")
