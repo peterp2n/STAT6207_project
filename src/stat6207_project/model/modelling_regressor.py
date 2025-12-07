@@ -179,20 +179,6 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.show()
 
-    corr_before = raw_train.corr()
-    corr_after = pd.DataFrame(transformed_train).corr()
-
-    fig, axes = plt.subplots(1, 2, figsize=(32, 14))
-    heatmap_args = {"annot": True, "fmt": ".2f", "cmap": "coolwarm", "center": 0, "square": True}
-
-    sns.heatmap(corr_before, ax=axes[0], **heatmap_args)
-    axes[0].set_title("Correlation: Raw Train Data (Before)", fontsize=18)
-
-    sns.heatmap(corr_after, ax=axes[1], **heatmap_args)
-    axes[1].set_title("Correlation: Transformed Train Data (After)", fontsize=18)
-    plt.tight_layout();
-    plt.show()
-
     # ------------------------------------------------------------------
     # SCATTERPLOTS: Feature vs Quantity (The Reality Check)
     # ------------------------------------------------------------------
