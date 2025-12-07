@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
+import seaborn as sns
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 from regressor import Regressor
@@ -125,11 +126,12 @@ if __name__ == "__main__":
 
     impute_cols = ["print_length", "length", "width", "height", "rating", "item_weight", "price"]
 
-    # Capture raw train data before any imputation or transformation
+    # Capture raw train data before any imputation or transformation, including quantity for correlations
     transform_cols = [
         "q_since_first", "avg_discount_rate", "print_length", "length", "width", "height", "rating", "price"
     ]
-    raw_train = df_train[transform_cols].copy()
+    continuous_cols = transform_cols + ["quantity"]
+    raw_train = df_train[continuous_cols].copy()
 
     # 1. LEARN: Calculate medians only on Training data
     # We group by series to get specific stats, and also get global stats for fallbacks
@@ -152,12 +154,12 @@ if __name__ == "__main__":
 
     # Now continue with your transform_cols logic...
     show = False
+    transformed_train = {}  # Collect transformed features for "after" correlation
     for col in transform_cols:
         # Log1p transform
         train_np = np.log1p(df_train[col].to_numpy())
         val_np = np.log1p(df_val[col].to_numpy())
         test_np = np.log1p(df_test[col].to_numpy())
-
 
         df_train[col].plot.box()
         plt.title(f"Boxplot of {col} after log1p transformation")
@@ -179,6 +181,8 @@ if __name__ == "__main__":
         df_train[col] = train_np
         df_val[col] = val_np
         df_test[col] = test_np
+
+        transformed_train[col] = train_np  # Store transformed train features
 
         df_val[col].plot.box()
         plt.title(f"Boxplot of {col} in Val set after log1p and standardization")
@@ -205,6 +209,47 @@ if __name__ == "__main__":
         plt.suptitle(f"Preprocessing Effect: {col}", fontsize=14)
         plt.tight_layout()
         plt.show()
+
+    # New: Transform quantity for "after" correlation (using train stats, but only for viz)
+    qty_train_log = np.log1p(df_train["quantity"])
+    qty_train_mean = qty_train_log.mean()
+    qty_train_std = qty_train_log.std()
+    qty_train_clipped = np.clip(qty_train_log, qty_train_mean - 3 * qty_train_std, qty_train_mean + 3 * qty_train_std)
+    qty_train_transformed = (qty_train_clipped - qty_train_clipped.mean()) / qty_train_clipped.std()
+    transformed_train["quantity"] = qty_train_transformed
+
+    # Compute correlations
+    corr_before = raw_train.corr()  # Pairwise deletion for NaNs
+    transformed_df = pd.DataFrame(transformed_train)
+    corr_after = transformed_df.corr()
+
+    # Plot side-by-side heatmaps
+    fig, axes = plt.subplots(1, 2, figsize=(32, 14))
+
+    heatmap_args = {
+        "annot": True,
+        "fmt": ".2f",
+        "cmap": "coolwarm",
+        "center": 0,
+        "square": True,
+        "linewidths": 1,
+        "cbar_kws": {"shrink": 0.7},
+        "annot_kws": {"size": 11, "weight": "bold"}
+    }
+
+    sns.heatmap(corr_before, ax=axes[0], **heatmap_args)
+    axes[0].set_title("Correlation: Raw Train Data (Before)\n(Pair-wise Deletion)", fontsize=18, pad=20)
+    axes[0].tick_params(axis='x', rotation=45, labelsize=12)
+    axes[0].tick_params(axis='y', rotation=0, labelsize=12)
+
+    sns.heatmap(corr_after, ax=axes[1], **heatmap_args)
+    axes[1].set_title("Correlation: Transformed Train Data (After)\n(Imputed + Log1p + Clipped + Std)", fontsize=18,
+                      pad=20)
+    axes[1].tick_params(axis='x', rotation=45, labelsize=12)
+    axes[1].tick_params(axis='y', rotation=0, labelsize=12)
+
+    plt.tight_layout()
+    plt.show()
 
     print(f"Train rows : {len(df_train):,}")
     print(f"Val   rows : {len(df_val):,}")
