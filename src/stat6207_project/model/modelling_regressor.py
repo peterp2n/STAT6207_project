@@ -12,474 +12,271 @@ from regressor import Regressor
 device = torch.device("mps")
 
 
-def apply_imputation(df_target, source_medians, fallback_medians):
+def apply_imputation(df_target, source_medians, fallback_medians, impute_cols):
     """
-    Applies series-specific medians.
-    If a series is unknown (NaN), fills with global training median.
+    Applies series-specific medians for selected columns.
     """
-    # Join the target with the learned medians
-    # We use 'left' to keep the target rows intact
     df_merged = df_target.join(source_medians, on="series", rsuffix="_median")
 
     for col in impute_cols:
         median_col = f"{col}_median"
-
         # Coalesce: 1. Original Value -> 2. Series Median -> 3. Global Median
         df_target[col] = df_target[col].fillna(df_merged[median_col]).fillna(fallback_medians[col])
 
     return df_target
 
-def log_and_plot_regression_history(
-    epoch: int,
-    train_mse: float,
-    val_mse: float,
-    train_history: list,
-    val_history: list,
-    best_val_rmse: float = None,
-    is_best: bool = False,
-    print_every: int = 10
-):
-    """
-    Logs metrics every epoch (for plotting), but only prints every `print_every` epochs.
-    """
-    train_rmse = np.sqrt(train_mse)
-    val_rmse   = np.sqrt(val_mse)
 
-    # Always store for plotting
-    train_history.append(train_rmse)
-    val_history.append(val_rmse)
+def log_and_plot_regression_history(epoch, train_mse, val_mse, train_hist, val_hist, best_rmse=None, is_best=False):
+    train_rmse, val_rmse = np.sqrt(train_mse), np.sqrt(val_mse)
+    train_hist.append(train_rmse);
+    val_hist.append(val_rmse)
 
-    # Only print every N epochs or when it's the best model
-    should_print = (epoch + 1) % print_every == 0 or is_best or (epoch + 1) == 100  # assuming max 100 epochs
-
-    if should_print:
+    if (epoch + 1) % 10 == 0 or is_best:
         status = " BEST" if is_best else ""
-        print(
-            f"Epoch {epoch+1:3d} | "
-            f"Train MSE: {train_mse:8.5f}  RMSE: {train_rmse:7.4f} | "
-            f"Val   MSE: {val_mse:8.5f}  RMSE: {val_rmse:7.4f}{status}"
-        )
+        print(f"Epoch {epoch + 1:3d} | Train MSE: {train_mse:.5f} RMSE: {train_rmse:.4f} | "
+              f"Val MSE: {val_mse:.5f} RMSE: {val_rmse:.4f}{status}")
 
-    # Return updated best RMSE
-    if best_val_rmse is None:
-        return val_rmse
-    return min(best_val_rmse, val_rmse)
+    if best_rmse is None: return val_rmse
+    return min(best_rmse, val_rmse)
 
 
-def plot_rmse_curve(train_history: list, val_history: list, best_epoch: int = None):
-    """
-    Call once after training finishes to display the gorgeous RMSE curve.
-    """
+def plot_rmse_curve(train_history, val_history, best_epoch=None):
     plt.figure(figsize=(10, 6))
-    epochs_range = range(1, len(train_history) + 1)
-
-    plt.plot(epochs_range, train_history, label="Training RMSE", linewidth=2.5, color="#1f77b4")
-    plt.plot(epochs_range, val_history,   label="Validation RMSE", linewidth=2.5, color="#ff7f0e")
-
-    if best_epoch is not None:
-        plt.axvline(best_epoch, color="red", linestyle="--", alpha=0.7,
-                    label=f"Best model (epoch {best_epoch})")
-
-    plt.title("Book Sales Regressor — RMSE over Epochs", fontsize=18, fontweight="bold", pad=20)
-    plt.xlabel("Epoch")
-    plt.ylabel("RMSE (log1p + standardized quantity)")
-    plt.legend(fontsize=12)
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
+    plt.plot(train_history, label="Training RMSE", linewidth=2.5, color="#1f77b4")
+    plt.plot(val_history, label="Validation RMSE", linewidth=2.5, color="#ff7f0e")
+    if best_epoch: plt.axvline(best_epoch, color="red", linestyle="--", label=f"Best (ep {best_epoch})")
+    plt.title("Book Sales Regressor — RMSE", fontsize=18, pad=20)
+    plt.legend();
+    plt.grid(True, alpha=0.3);
+    plt.tight_layout();
     plt.show()
+
 
 if __name__ == "__main__":
     data_folder = Path("data")
     data_folder.mkdir(parents=True, exist_ok=True)
 
-    results_folder = Path("results")
-    encoder_path = results_folder / "encoder_weights.pth"
-
+    # Load Data
     series_path = data_folder / "target_series_new_with_features2.csv"
     df_full = pd.read_csv(series_path, dtype={
-        "isbn": "string",
-        "print_length": "float32",
-        "number_of_reviews": "float32",
-        "length": "float32",
-        "item_weight": "float32",
-        "width": "float32",
-        "height": "float32",
-        "rating": "float32",
-        "price": "float32",
+        "isbn": "string", "print_length": "float32", "number_of_reviews": "float32",
+        "length": "float32", "item_weight": "float32", "width": "float32",
+        "height": "float32", "rating": "float32", "price": "float32",
         "avg_discount_rate": "float32"
     })
 
-    df_train, df_temp = train_test_split(
-        df_full,
-        test_size=0.3,
-        random_state=42,
-        shuffle=True,
-        stratify=None,  # you can add stratification on e.g. year/quarter if desired
-    )
+    # ------------------------------------------------------------------
+    # STEVE JOBS FIX: Capture the "Missingness" signal BEFORE we polish
+    # ------------------------------------------------------------------
+    # We explicitly tell the model: "We don't know the length of this one."
+    # This allows us to use the Median for the value (neutralizing the flip)
+    # while still letting the model learn that "Unknown Length" is a special category.
+    flag_cols = ["print_length", "height"]
+    for col in flag_cols:
+        df_full[f"{col}_is_missing"] = df_full[col].isna().astype(np.float32)
 
-    df_val, df_test = train_test_split(
-        df_temp,
-        test_size=0.5,  # 15% of total each
-        random_state=42,
-        shuffle=True,
-    )
+    df_train, df_temp = train_test_split(df_full, test_size=0.3, random_state=42, shuffle=True)
+    df_val, df_test = train_test_split(df_temp, test_size=0.5, random_state=42, shuffle=True)
 
-    impute_cols = ["print_length", "length", "width", "height", "rating", "item_weight", "price"]
+    # ------------------------------------------------------------------
+    # 1. Configuration: Imputation Split
+    # ------------------------------------------------------------------
+    # We moved print_length and height BACK to impute_cols.
+    # Why? Because Median (Average) is "safe". It sits in the middle.
+    # It does not pull the regression line up or down. It stops the flip.
+    impute_cols = ["length", "width", "rating", "item_weight", "price", "print_length", "height"]
 
-    # Capture raw train data before any imputation or transformation, including quantity for correlations
-    transform_cols = [
-        "q_since_first", "avg_discount_rate", "print_length", "length", "width", "height", "rating", "price"
-    ]
-    continuous_cols = transform_cols + ["quantity"]
-    raw_train = df_train[continuous_cols].copy()
+    transform_cols = ["q_since_first", "avg_discount_rate", "print_length", "length", "width", "height", "rating",
+                      "price"]
+    raw_train = df_train[transform_cols + ["quantity"]].copy()  # Capture for Before Heatmap/Boxplots
 
-    # 1. LEARN: Calculate medians only on Training data
-    # We group by series to get specific stats, and also get global stats for fallbacks
+    # 2. Learn Medians (Train only)
     series_medians = df_train.groupby("series")[impute_cols].median()
     global_medians = df_train[impute_cols].median()
 
-    # 2. APPLY: Transform all sets using the knowledge from Train
+    # 3. Apply Imputation (Median for ALL, No more Zero filling)
     print("Imputing missing values...")
-    df_train = apply_imputation(df_train.copy(), series_medians, global_medians)
-    df_val = apply_imputation(df_val.copy(), series_medians, global_medians)
-    df_test = apply_imputation(df_test.copy(), series_medians, global_medians)
-
-    # Verify purity
-    print(f"Missing values in Train after impute: {df_train[impute_cols].isna().sum().sum()}")
-    print(f"Missing values in Test  after impute: {df_test[impute_cols].isna().sum().sum()}")
+    for df in [df_train, df_val, df_test]:
+        apply_imputation(df, series_medians, global_medians, impute_cols)
 
     # ------------------------------------------------------------------
-    # Resume existing pipeline
+    # 4. Transformation Logic
     # ------------------------------------------------------------------
+    log_cols = ["print_length", "length", "width", "height", "price", "q_since_first"]
+    train_stats = {}
+    transformed_train = {}
 
-    # Now continue with your transform_cols logic...
-    show = False
-    transformed_train = {}  # Collect transformed features for "after" correlation
+    print("\nTransforming features...")
     for col in transform_cols:
-        # Log1p transform
-        train_np = np.log1p(df_train[col].to_numpy())
-        val_np = np.log1p(df_val[col].to_numpy())
-        test_np = np.log1p(df_test[col].to_numpy())
+        train_np = df_train[col].to_numpy().astype(np.float32)
+        val_np = df_val[col].to_numpy().astype(np.float32)
+        test_np = df_test[col].to_numpy().astype(np.float32)
 
-        df_train[col].plot.box()
-        plt.title(f"Boxplot of {col} after log1p transformation")
-        if show:
-            plt.show()
+        is_log = col in log_cols
+        if is_log:
+            train_np = np.log1p(train_np)
+            val_np = np.log1p(val_np)
+            test_np = np.log1p(test_np)
 
-        train_mean = train_np.mean()
-        train_std = train_np.std()
-        # Standardize
-        train_np = (train_np - train_mean) / train_std
-        val_np = (val_np - train_mean) / train_std
-        test_np = (test_np - train_mean) / train_std
+        _mean = train_np.mean()
+        _std = train_np.std() + 1e-8
+        train_stats[col] = {"mean": _mean, "std": _std, "log": is_log}
 
-        # Clip using +3/-3 stddev
-        train_np = np.clip(train_np, -3, 3)
-        val_np = np.clip(val_np, -3, 3)
-        test_np = np.clip(test_np, -3, 3)
+        # Standardize & Clip
+        train_np = np.clip((train_np - _mean) / _std, -3, 3)
+        val_np = np.clip((val_np - _mean) / _std, -3, 3)
+        test_np = np.clip((test_np - _mean) / _std, -3, 3)
 
         df_train[col] = train_np
         df_val[col] = val_np
         df_test[col] = test_np
+        transformed_train[col] = train_np
 
-        transformed_train[col] = train_np  # Store transformed train features
-
-        df_val[col].plot.box()
-        plt.title(f"Boxplot of {col} in Val set after log1p and standardization")
-        if show:
-            plt.show()
-        df_test[col].plot.box()
-        plt.title(f"Boxplot of {col} in Test set after log1p and standardization")
-        if show:
-            plt.show()
-
-    # New: Plot side-by-side boxplots for each transformed column (train set only)
-    # Raw (pre-impute/transform) vs. Final Preprocessed
+    # ------------------------------------------------------------------
+    # 5. Visual Validation: Boxplots
+    # ------------------------------------------------------------------
+    print("\nGenerating Side-by-Side Boxplots...")
     for col in transform_cols:
-        fig, axes = plt.subplots(1, 2, figsize=(10, 6), sharey=False)  # Different scales, as raw and transformed differ
+        fig, axes = plt.subplots(1, 2, figsize=(10, 6), sharey=False)  # Different scales
 
+        # Plot Raw (original data, NaNs handled automatically by plot)
         raw_train[col].plot.box(ax=axes[0])
         axes[0].set_title(f"Raw {col} (Train Set)")
         axes[0].set_ylabel(col)
 
+        # Plot Processed (Imputed + Transformed)
         df_train[col].plot.box(ax=axes[1])
         axes[1].set_title(f"Preprocessed {col} (Train Set)")
-        axes[1].set_ylabel("Transformed Value")
+        axes[1].set_ylabel("Transformed Value (Std)")
 
         plt.suptitle(f"Preprocessing Effect: {col}", fontsize=14)
         plt.tight_layout()
         plt.show()
 
-    # New: Transform quantity for "after" correlation (using train stats, but only for viz)
-    qty_train_log = np.log1p(df_train["quantity"])
-    qty_train_mean = qty_train_log.mean()
-    qty_train_std = qty_train_log.std()
-    qty_train_clipped = np.clip(qty_train_log, qty_train_mean - 3 * qty_train_std, qty_train_mean + 3 * qty_train_std)
-    qty_train_transformed = (qty_train_clipped - qty_train_clipped.mean()) / qty_train_clipped.std()
-    transformed_train["quantity"] = qty_train_transformed
+    # ------------------------------------------------------------------
+    # HEATMAP
+    # ------------------------------------------------------------------
+    qty_raw = raw_train["quantity"].to_numpy().astype(np.float32)
+    qty_trans = np.clip((np.log1p(qty_raw) - np.log1p(qty_raw).mean()) / np.log1p(qty_raw).std(), -3, 3)
+    transformed_train["quantity"] = qty_trans
 
-    # Compute correlations
-    corr_before = raw_train.corr()  # Pairwise deletion for NaNs
-    transformed_df = pd.DataFrame(transformed_train)
-    corr_after = transformed_df.corr()
+    corr_before = raw_train.corr()
+    corr_after = pd.DataFrame(transformed_train).corr()
 
-    # Plot side-by-side heatmaps
     fig, axes = plt.subplots(1, 2, figsize=(32, 14))
-
-    heatmap_args = {
-        "annot": True,
-        "fmt": ".2f",
-        "cmap": "coolwarm",
-        "center": 0,
-        "square": True,
-        "linewidths": 1,
-        "cbar_kws": {"shrink": 0.7},
-        "annot_kws": {"size": 11, "weight": "bold"}
-    }
+    heatmap_args = {"annot": True, "fmt": ".2f", "cmap": "coolwarm", "center": 0, "square": True}
 
     sns.heatmap(corr_before, ax=axes[0], **heatmap_args)
-    axes[0].set_title("Correlation: Raw Train Data (Before)\n(Pair-wise Deletion)", fontsize=18, pad=20)
-    axes[0].tick_params(axis='x', rotation=45, labelsize=12)
-    axes[0].tick_params(axis='y', rotation=0, labelsize=12)
+    axes[0].set_title("Correlation: Raw Train Data (Before)", fontsize=18)
 
     sns.heatmap(corr_after, ax=axes[1], **heatmap_args)
-    axes[1].set_title("Correlation: Transformed Train Data (After)\n(Imputed + Log1p + Clipped + Std)", fontsize=18,
-                      pad=20)
-    axes[1].tick_params(axis='x', rotation=45, labelsize=12)
-    axes[1].tick_params(axis='y', rotation=0, labelsize=12)
-
-    plt.tight_layout()
+    axes[1].set_title("Correlation: Transformed Train Data (After)", fontsize=18)
+    plt.tight_layout();
     plt.show()
 
-    # ===================================================================
-    # NEW: Stacked bar charts – Total sales by quartile × format / channel
-    # ===================================================================
-    print("\nPlotting sales distribution across quarters...")
-
-    # Make sure we are working with the *original* (non-transformed) quantity
-    # because we want real-world book counts on the y-axis
-    df_train_for_viz = df_train.copy()
-    df_train_for_viz["quantity_raw"] = raw_train["quantity"]  # this is the untouched target
-
-    categorical_cols = ["format", "channel"]
-
-    for cat_col in categorical_cols:
-        # Aggregate total quantity sold per (q_num, category)
-        agg = (
-            df_train_for_viz
-            .groupby(["q_num", cat_col], as_index=False)["quantity_raw"]
-            .sum()
-            .rename(columns={"quantity_raw": "total_quantity"})
-        )
-
-        # Pivot so each category becomes a column → ready for stacked bar
-        pivot = agg.pivot(index="q_num", columns=cat_col, values="total_quantity").fillna(0)
-
-        # Plot
-        ax = pivot.plot(kind="bar",
-                        stacked=True,
-                        figsize=(10, 6),
-                        colormap="viridis",
-                        edgecolor="black",
-                        linewidth=0.5)
-
-        plt.title(f"Total Books Sold by Quarter — Stacked by {cat_col.capitalize()}",
-                  fontsize=16, fontweight="bold", pad=20)
-        plt.xlabel("Quarter (q_num)", fontsize=12)
-        plt.ylabel("Total Quantity Sold", fontsize=12)
-        plt.xticks(rotation=0)
-        plt.legend(title=cat_col.capitalize(), bbox_to_anchor=(1.05, 1), loc="upper left")
-        plt.tight_layout()
+    # ------------------------------------------------------------------
+    # Model Prep
+    # ------------------------------------------------------------------
+    # Stacked Bars
+    df_train_viz = df_train.copy();
+    df_train_viz["quantity_raw"] = raw_train["quantity"]
+    for cat in ["format", "channel"]:
+        (df_train_viz.groupby(["q_num", cat])["quantity_raw"].sum().unstack().fillna(0)
+         .plot(kind="bar", stacked=True, figsize=(10, 6), colormap="viridis", edgecolor="black"))
+        plt.title(f"Sales by {cat}");
+        plt.tight_layout();
         plt.show()
 
-    print(f"Train rows : {len(df_train):,}")
-    print(f"Val   rows : {len(df_val):,}")
-    print(f"Test  rows : {len(df_test):,}")
-
-    # ------------------------------------------------------------------
-    # Convert ONLY the feature columns to tensors
-    # ------------------------------------------------------------------
-
-    target_col = "quantity"
-    metadata_cols = ["isbn", "title", "year_quarter", "series"]
-    drop_cols = ["price"]
-
-
+    # Tensors
     dummy_cols = ["format", "channel"]
     df_train = pd.get_dummies(df_train, columns=dummy_cols, drop_first=True)
     df_val = pd.get_dummies(df_val, columns=dummy_cols, drop_first=True)
     df_test = pd.get_dummies(df_test, columns=dummy_cols, drop_first=True)
 
-    feat_cols = [c for c in df_train.columns if c not in (metadata_cols + [target_col])]
+    target_col = "quantity"
+    feat_cols = [c for c in df_train.columns if c not in ["isbn", "title", "year_quarter", "series", target_col]]
 
-    X_train = torch.from_numpy(df_train[feat_cols].to_numpy().astype(np.float32))
-    X_val = torch.from_numpy(df_val[feat_cols].to_numpy().astype(np.float32))
-    X_test = torch.from_numpy(df_test[feat_cols].to_numpy().astype(np.float32))
+    # Note: feat_cols AUTOMATICALLY includes our new "print_length_is_missing" flags
+    # because they are in df_train and not in the excluded list.
+    print(f"Features being used: {feat_cols}")
 
-    # Step 1: Log-transform the target in all splits
-    qty_train_log = np.log1p(df_train[target_col])
-    qty_val_log = np.log1p(df_val[target_col])
-    qty_test_log = np.log1p(df_test[target_col])
+    X_train = torch.from_numpy(df_train[feat_cols].to_numpy().astype(np.float32)).to(device)
+    X_val = torch.from_numpy(df_val[feat_cols].to_numpy().astype(np.float32)).to(device)
+    X_test = torch.from_numpy(df_test[feat_cols].to_numpy().astype(np.float32)).to(device)
 
-    # Step 2: Fit StandardScaler only on training (log-transformed) targets
-    target_train_mean = qty_train_log.mean()
-    target_train_std = qty_train_log.std()  # usually very close to 1 after log1p
+    # Target Transform
+    qty_log_train = np.log1p(df_train[target_col])
+    target_mean, target_std = qty_log_train.mean(), qty_log_train.std()
 
-    # Step 3: Standardize all splits with training statistics
-    y_train = ((qty_train_log - target_train_mean) / target_train_std).astype(np.float32).to_numpy()
-    y_val = ((qty_val_log - target_train_mean) / target_train_std).astype(np.float32).to_numpy()
-    y_test = ((qty_test_log - target_train_mean) / target_train_std).astype(np.float32).to_numpy()
+    y_train = torch.from_numpy(((qty_log_train - target_mean) / target_std).to_numpy().astype(np.float32)).to(device)
+    y_val = torch.from_numpy(
+        ((np.log1p(df_val[target_col]) - target_mean) / target_std).to_numpy().astype(np.float32)).to(device)
+    y_test = torch.from_numpy(
+        ((np.log1p(df_test[target_col]) - target_mean) / target_std).to_numpy().astype(np.float32)).to(device)
 
-    # Convert to tensors as before
-    y_train = torch.from_numpy(y_train).to(device)
-    y_val = torch.from_numpy(y_val).to(device)
-    y_test = torch.from_numpy(y_test).to(device)
-
-    # Move to device
-    X_train = X_train.to(device)
-    X_val = X_val.to(device)
-    X_test = X_test.to(device)
-    y_train = y_train.to(device)
-    y_val = y_val.to(device)
-    y_test = y_test.to(device)
-
-    print(f"Train tensor : {X_train.shape}")
-    print(f"Val   tensor : {X_val.shape}")
-    print(f"Test  tensor : {X_test.shape}")
-
-    input_dim = X_train.shape[1]
-
-    # # ======== Load the trained encoder ========
-    #
-    # encoder = load_encoder_weights(
-    #     input_dim=input_dim,
-    #     encoding_dim=6,
-    #     weights_path=encoder_path,
-    #     device=device
-    # )
-    # print("Trained encoder loaded and ready for embedding extraction")
-    batch_size = 128
-    epochs = 50
-    learning_rate = 0.001
-    drop = 0.5
-    decay = 1e-3
-
-    # Training the regressor
-    model = Regressor(input_dim=input_dim, dropout=drop).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=decay)
+    # ------------------------------------------------------------------
+    # Training
+    # ------------------------------------------------------------------
+    model = Regressor(input_dim=X_train.shape[1], dropout=0.5).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-3)
     loss_fn = nn.MSELoss()
 
-    train_ds = TensorDataset(X_train, y_train)
-    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    val_ds = TensorDataset(X_val, y_val)
-    val_dl = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
+    train_dl = DataLoader(TensorDataset(X_train, y_train), batch_size=128, shuffle=True)
+    val_dl = DataLoader(TensorDataset(X_val, y_val), batch_size=128, shuffle=False)
 
-    train_rmses = []
-    val_rmses = []
-    best_val_rmse = float('inf')
-    best_epoch = 0
+    train_rmses, val_rmses, best_rmse, best_ep = [], [], float('inf'), 0
 
-    for epoch in range(epochs):
+    for epoch in range(50):
         model.train()
         train_loss = 0.0
         for xb, yb in train_dl:
-            optimizer.zero_grad()
-            preds = model(xb)
-            loss = loss_fn(preds, yb)
-            loss.backward()
+            optimizer.zero_grad();
+            loss = loss_fn(model(xb), yb);
+            loss.backward();
             optimizer.step()
             train_loss += loss.item() * len(xb)
-        train_loss /= len(train_ds)
-        train_rmse = np.sqrt(train_loss)
+        train_loss /= len(X_train)
 
         model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for xb, yb in val_dl:
-                preds = model(xb)
-                loss = loss_fn(preds, yb)
-                val_loss += loss.item() * len(xb)
-        val_loss /= len(val_ds)
-        val_rmse = np.sqrt(val_loss)
+        val_loss = sum(loss_fn(model(xb), yb).item() * len(xb) for xb, yb in val_dl) / len(X_val)
 
-        is_best = False
-        if val_rmse < best_val_rmse:
-            best_val_rmse = val_rmse
-            best_epoch = epoch + 1
-            is_best = True
-            torch.save(model.state_dict(), "results/regressor_best.pth")
+        is_best = val_loss < best_rmse
+        if is_best: best_rmse = val_loss; best_ep = epoch + 1; torch.save(model.state_dict(),
+                                                                          "results/regressor_best.pth")
+        log_and_plot_regression_history(epoch, train_loss, val_loss, train_rmses, val_rmses, np.sqrt(best_rmse),
+                                        is_best)
 
-        # This now handles BOTH logging AND smart printing
-        log_and_plot_regression_history(
-            epoch=epoch,
-            train_mse=train_loss,
-            val_mse=val_loss,
-            train_history=train_rmses,
-            val_history=val_rmses,
-            best_val_rmse=best_val_rmse,
-            is_best=is_best,
-            print_every=10
-        )
+    plot_rmse_curve(train_rmses, val_rmses, best_ep)
 
+    # ------------------------------------------------------------------
+    # Final Prediction
+    # ------------------------------------------------------------------
+    target_books = pd.read_csv(data_folder / "target_books_new.csv", dtype={"isbn": "string"})
+    final_ids = target_books[["isbn", "title"]].copy()
 
-    # Optional: Evaluate on test set after training
-    model.eval()
-    test_loss = 0.0
-    with torch.no_grad():
-        test_preds = model(X_test)
-        test_loss = loss_fn(test_preds, y_test).item()
-    test_rmse = np.sqrt(test_loss)
-    print(f"Test MSE {test_loss:.4f}, RMSE {test_rmse:.4f}")
+    # 1. APPLY THE SAME FLAG LOGIC
+    for col in flag_cols:
+        target_books[f"{col}_is_missing"] = target_books[col].isna().astype(np.float32)
 
-    # After loop
-    plot_rmse_curve(train_rmses, val_rmses, best_epoch=best_epoch)
+    # 2. Impute (Median where valid)
+    target_books = apply_imputation(target_books, series_medians, global_medians, impute_cols)
 
-    # ===================================================================
-    # FINAL PREDICTION — Perfect, safe, and preserves book identity
-    # ===================================================================
-
-    target_books_new = pd.read_csv(data_folder / "target_books_new.csv", dtype={"isbn": "string"})
-
-    # Preserve identity columns before anything touches them
-    identity_cols = target_books_new[["isbn", "title"]].copy()
-
-    # 1. Imputation
-    target_books_new = apply_imputation(target_books_new.copy(), series_medians, global_medians)
-
-    # 2. Numerical transformations (using the SAME stats from training)
-    # Note: We save these stats properly now
-    transform_stats = {}
+    # 3. Transform
     for col in transform_cols:
-        x = np.log1p(target_books_new[col])
-        mean = df_train[col].mean()  # already transformed in training loop
-        std = df_train[col].std()
-        x = (x - mean) / std
-        x = np.clip(x, -3, 3)
-        target_books_new[col] = x
-        transform_stats[col] = (mean, std)
+        s = train_stats[col]
+        vals = target_books[col].to_numpy().astype(np.float32)
+        if s["log"]: vals = np.log1p(vals)
+        target_books[col] = np.clip((vals - s["mean"]) / s["std"], -3, 3)
 
-    # 3. Dummies
-    dummy_cols = ["format", "channel", "q_num"]
-    target_books_new = pd.get_dummies(target_books_new, columns=dummy_cols, drop_first=True)
+    # 4. Predict
+    target_books = pd.get_dummies(target_books, columns=dummy_cols, drop_first=True)
+    X_final = torch.from_numpy(target_books.reindex(columns=feat_cols, fill_value=0.0).values.astype(np.float32)).to(
+        device)
 
-    # 4. Align features EXACTLY with training — but keep identity separate
-    X_target = target_books_new.reindex(columns=feat_cols, fill_value=0.0)
-
-    # Now predict
     model.eval()
     with torch.no_grad():
-        X_tensor = torch.from_numpy(X_target.values.astype(np.float32)).to(device)
-        preds = model(X_tensor).cpu().numpy().flatten()
+        preds = model(X_final).cpu().numpy().flatten()
 
-    # Reverse transform
-    pred_quantity = np.expm1(preds * target_train_std + target_train_mean)
-
-    # Reattach identity
-    result = identity_cols.copy()
-    result["pred_quantity"] = pred_quantity.round(0).astype(int)  # real book counts
-
-    print("Predictions (final, clean, beautiful):")
-    print(result.head(10))
-    result.to_csv("results/final_predictions.csv", index=False)
-    print("\nPredictions saved to results/final_predictions.csv")
-    print("end")
+    final_ids["pred_quantity"] = np.expm1(preds * target_std + target_mean).round(0).astype(int)
+    print("\nFinal Predictions:\n", final_ids.head(10))
+    final_ids.to_csv("results/final_predictions.csv", index=False)
