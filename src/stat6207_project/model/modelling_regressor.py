@@ -44,6 +44,61 @@ def apply_imputation(df_target, source_medians, fallback_medians, impute_cols):
     return df_target
 
 
+def plot_actual_vs_predicted(model, X_test, y_test, y_scale, y_center, device):
+    """
+    Plot actual vs predicted quantity for test set with best fit line.
+    Shows both transformed (scaled) and original scale in separate plots.
+    """
+    model.eval()
+    with torch.no_grad():
+        preds_scaled = model(X_test).cpu().numpy().flatten()
+
+    actual_scaled = y_test.cpu().numpy().flatten()
+
+    # Inverse transform to original scale
+    pred_log = preds_scaled * y_scale + y_center
+    pred_qty = np.expm1(pred_log)
+
+    actual_log = actual_scaled * y_scale + y_center
+    actual_qty = np.expm1(actual_log)
+
+    # --- Plot 1: Transformed Scale ---
+    coeffs_scaled = np.polyfit(preds_scaled, actual_scaled, 1)
+    fit_scaled = np.poly1d(coeffs_scaled)
+    x_range_scaled = np.linspace(preds_scaled.min(), preds_scaled.max(), 100)
+
+    plt.figure(figsize=(10, 8))
+    plt.scatter(preds_scaled, actual_scaled, alpha=0.5, c='#1f77b4', edgecolors='none', s=20, label='Test samples')
+    plt.plot(x_range_scaled, fit_scaled(x_range_scaled), 'r--', linewidth=2, label=f'Best fit (y={coeffs_scaled[0]:.2f}x+{coeffs_scaled[1]:.2f})')
+    plt.plot(x_range_scaled, x_range_scaled, 'g-', linewidth=1, alpha=0.5, label='Perfect prediction')
+    plt.xlabel('Predicted (Scaled)', fontsize=12)
+    plt.ylabel('Actual (Scaled)', fontsize=12)
+    plt.title('Actual vs Predicted Quantity - Transformed Scale (Test Set)', fontsize=14)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+    # --- Plot 2: Original Scale ---
+    coeffs_orig = np.polyfit(pred_qty, actual_qty, 1)
+    fit_orig = np.poly1d(coeffs_orig)
+    x_range_orig = np.linspace(pred_qty.min(), pred_qty.max(), 100)
+
+    plt.figure(figsize=(10, 8))
+    plt.scatter(pred_qty, actual_qty, alpha=0.5, c='#ff7f0e', edgecolors='none', s=20, label='Test samples')
+    plt.plot(x_range_orig, fit_orig(x_range_orig), 'r--', linewidth=2, label=f'Best fit (y={coeffs_orig[0]:.2f}x+{coeffs_orig[1]:.2f})')
+    plt.plot(x_range_orig, x_range_orig, 'g-', linewidth=1, alpha=0.5, label='Perfect prediction')
+    plt.xlabel('Predicted Quantity', fontsize=12)
+    plt.ylabel('Actual Quantity', fontsize=12)
+    plt.title('Actual vs Predicted Quantity - Original Scale (Test Set)', fontsize=14)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+
+
+
 def log_and_plot_regression_history(epoch, train_mse, val_mse, train_hist, val_hist, best_rmse=None, is_best=False):
     train_rmse, val_rmse = np.sqrt(train_mse), np.sqrt(val_mse)
     train_hist.append(train_rmse);
@@ -421,6 +476,7 @@ if __name__ == "__main__":
     test_rmse = np.sqrt(test_loss)
 
     print(f"\nTest MSE: {test_loss:.5f} RMSE: {test_rmse:.4f}")
+    plot_actual_vs_predicted(model, X_test, y_test, y_scale, y_center, device)
 
     # ------------------------------------------------------------------
     # Final Prediction
