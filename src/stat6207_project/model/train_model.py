@@ -363,6 +363,74 @@ class ModelTrainer:
         print(f"{'SUMMARY':<8} MAE: {mae:.4f} | RMSE: {rmse:.4f}")
         print("=" * 85)
 
+    def plot_rmse_curve(self, best_epoch: int = None):
+        """Plot training and validation RMSE curves."""
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.train_history["train_rmse"], label="Training RMSE", linewidth=2.5, color="#1f77b4")
+        plt.plot(self.train_history["val_rmse"], label="Validation RMSE", linewidth=2.5, color="#ff7f0e")
+        if best_epoch:
+            plt.axvline(best_epoch - 1, color="red", linestyle="--", label=f"Best (ep {best_epoch})")
+        plt.xlabel("Epoch", fontsize=12)
+        plt.ylabel("RMSE", fontsize=12)
+        plt.title("Book Sales Regressor — RMSE Curve", fontsize=14)
+        plt.legend(fontsize=11)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
+    def plot_actual_vs_predicted(self, X_test: torch.Tensor, y_test: torch.Tensor,
+                                 y_scaler_center: float, y_scaler_scale: float,
+                                 device: torch.device):
+        """Plot actual vs predicted quantity for test set with best fit line."""
+        import matplotlib.pyplot as plt
+
+        preds_scaled = self.predict(X_test)
+        actual_scaled = y_test.cpu().numpy().flatten()
+
+        # Inverse transform to original scale
+        pred_log = preds_scaled * y_scaler_scale + y_scaler_center
+        pred_qty = np.expm1(pred_log)
+
+        actual_log = actual_scaled * y_scaler_scale + y_scaler_center
+        actual_qty = np.expm1(actual_log)
+
+        # --- Plot 1: Transformed Scale ---
+        coeffs_scaled = np.polyfit(preds_scaled, actual_scaled, 1)
+        fit_scaled = np.poly1d(coeffs_scaled)
+        x_range_scaled = np.linspace(preds_scaled.min(), preds_scaled.max(), 100)
+
+        plt.figure(figsize=(10, 8))
+        plt.scatter(preds_scaled, actual_scaled, alpha=0.5, c='#1f77b4', edgecolors='none', s=20, label='Test samples')
+        plt.plot(x_range_scaled, fit_scaled(x_range_scaled), 'r--', linewidth=2,
+                 label=f'Best fit (y={coeffs_scaled[0]:.2f}x+{coeffs_scaled[1]:.2f})')
+        plt.plot(x_range_scaled, x_range_scaled, 'g-', linewidth=1, alpha=0.5, label='Perfect prediction')
+        plt.xlabel('Predicted (Scaled)', fontsize=12)
+        plt.ylabel('Actual (Scaled)', fontsize=12)
+        plt.title('Actual vs Predicted Quantity - Transformed Scale (Test Set)', fontsize=14)
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
+        # --- Plot 2: Original Scale ---
+        coeffs_orig = np.polyfit(pred_qty, actual_qty, 1)
+        fit_orig = np.poly1d(coeffs_orig)
+        x_range_orig = np.linspace(pred_qty.min(), pred_qty.max(), 100)
+
+        plt.figure(figsize=(10, 8))
+        plt.scatter(pred_qty, actual_qty, alpha=0.5, c='#ff7f0e', edgecolors='none', s=20, label='Test samples')
+        plt.plot(x_range_orig, fit_orig(x_range_orig), 'r--', linewidth=2,
+                 label=f'Best fit (y={coeffs_orig[0]:.2f}x+{coeffs_orig[1]:.2f})')
+        plt.plot(x_range_orig, x_range_orig, 'g-', linewidth=1, alpha=0.5, label='Perfect prediction')
+        plt.xlabel('Predicted Quantity', fontsize=12)
+        plt.ylabel('Actual Quantity', fontsize=12)
+        plt.title('Actual vs Predicted Quantity - Original Scale (Test Set)', fontsize=14)
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
 
 def setup_device() -> torch.device:
     """Determine and return the best available device."""
@@ -545,6 +613,28 @@ def main():
     y_test_actual_original = preprocessor.inverse_transform_target(y_test_actual)
     y_test_predicted_original = preprocessor.inverse_transform_target(y_test_predicted)
     trainer.print_predictions_vs_actual(y_test_actual_original, y_test_predicted_original, data_type="Test")
+
+    # ------------------------------------------------------------------
+    # Plot RMSE Curve
+    # ------------------------------------------------------------------
+    print("\n" + "=" * 60)
+    print("Plotting Training Curves")
+    print("=" * 60)
+    trainer.plot_rmse_curve(best_epoch)
+
+    # ------------------------------------------------------------------
+    # Plot Actual vs Predicted
+    # ------------------------------------------------------------------
+    print("\n" + "=" * 60)
+    print("Plotting Actual vs Predicted")
+    print("=" * 60)
+    trainer.plot_actual_vs_predicted(
+        X_test,
+        y_test,
+        preprocessor.y_scaler.center_[0],
+        preprocessor.y_scaler.scale_[0],
+        device
+    )
 
     # ------------------------------------------------------------------
     # Final Prediction Block
