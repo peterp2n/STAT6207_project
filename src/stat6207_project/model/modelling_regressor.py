@@ -401,6 +401,18 @@ if __name__ == "__main__":
     plot_rmse_curve(train_rmses, val_rmses, best_ep)
 
     # ------------------------------------------------------------------
+    # Load Best Model & Evaluate on Test Set
+    # ------------------------------------------------------------------
+    model.load_state_dict(torch.load("results/regressor_best.pth"))
+    model.eval()
+
+    test_dl = DataLoader(TensorDataset(X_test, y_test), batch_size=b_size, shuffle=False)
+    test_loss = sum(loss_fn(model(xb), yb).item() * len(xb) for xb, yb in test_dl) / len(X_test)
+    test_rmse = np.sqrt(test_loss)
+
+    print(f"\nTest MSE: {test_loss:.5f} RMSE: {test_rmse:.4f}")
+
+    # ------------------------------------------------------------------
     # Final Prediction
     # ------------------------------------------------------------------
     target_books = pd.read_csv(data_folder / "target_books_new.csv", dtype={"isbn": "string"})
