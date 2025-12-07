@@ -361,6 +361,16 @@ if __name__ == "__main__":
     y_test = torch.from_numpy(y_test_scaled.astype(np.float32)).to(device)
 
     # ------------------------------------------------------------------
+    # Print tensor dimensions before training
+    # ------------------------------------------------------------------
+    print("\n=== Dataset Tensor Shapes ===")
+    print(f"X_train: {X_train.shape}  →  y_train: {y_train.shape}")
+    print(f"X_val:   {X_val.shape}   →  y_val:   {y_val.shape}")
+    print(f"X_test:  {X_test.shape}  →  y_test:  {y_test.shape}")
+    print(f"Feature dimension used in model → {X_train.shape[1]}")
+    print("=" * 34)
+
+    # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
     drop = 0.5
