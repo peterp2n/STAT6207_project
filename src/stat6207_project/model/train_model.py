@@ -60,7 +60,7 @@ class TrainingConfig:
     features_to_use: List[str] = field(default_factory=lambda: [
         "q_since_first",
         "avg_discount_rate"
-        "price", "height", "length", "width", "item_weight",
+        "price", "height", "item_weight",
         "print_length", "rating",
     ])
 
@@ -312,6 +312,57 @@ class ModelTrainer:
 
         return predictions
 
+    def print_training_history(self):
+        """Print training and validation RMSE history."""
+        print("\n" + "=" * 70)
+        print("TRAINING HISTORY - RMSE Losses")
+        print("=" * 70)
+        print(f"{'Epoch':<10} {'Train RMSE':<18} {'Val RMSE':<18} {'Status':<15}")
+        print("-" * 70)
+
+        for epoch, (train_rmse, val_rmse) in enumerate(
+            zip(self.train_history["train_rmse"], self.train_history["val_rmse"]),
+            start=1
+        ):
+            # Show every 10 epochs and last epoch
+            if epoch % 10 == 0 or epoch == len(self.train_history["train_rmse"]):
+                status = "Best" if epoch == len(self.train_history["train_rmse"]) else ""
+                print(f"{epoch:<10} {train_rmse:<18.4f} {val_rmse:<18.4f} {status:<15}")
+
+        print("=" * 70)
+
+    def print_predictions_vs_actual(
+            self,
+            y_actual: np.ndarray,
+            y_predicted: np.ndarray,
+            data_type: str = "Validation"
+    ):
+        """Print predicted vs actual values."""
+        print(f"\n{'=' * 85}")
+        print(f"{data_type.upper()} SET - Predicted vs Actual Values (First 20 Samples)")
+        print(f"{'=' * 85}")
+        print(f"{'Index':<8} {'Actual':<15} {'Predicted':<15} {'Error':<15} {'% Error':<15}")
+        print("-" * 85)
+
+        # Show first 20 samples
+        num_samples = min(20, len(y_actual))
+        for i in range(num_samples):
+            actual = y_actual[i]
+            pred = y_predicted[i]
+            error = pred - actual
+            pct_error = (error / actual * 100) if actual != 0 else 0.0
+            print(f"{i:<8} {actual:<15.4f} {pred:<15.4f} {error:<15.4f} {pct_error:<15.2f}%")
+
+        if len(y_actual) > 20:
+            print(f"... and {len(y_actual) - 20} more samples")
+
+        # Print summary statistics
+        mae = np.mean(np.abs(y_actual - y_predicted))
+        rmse = np.sqrt(np.mean((y_actual - y_predicted) ** 2))
+        print("-" * 85)
+        print(f"{'SUMMARY':<8} MAE: {mae:.4f} | RMSE: {rmse:.4f}")
+        print("=" * 85)
+
 
 def setup_device() -> torch.device:
     """Determine and return the best available device."""
@@ -478,6 +529,53 @@ def main():
     print(f"\nPredictions saved to {output_path}")
     print(f"\nSample predictions:\n{final_ids.head(10)}")
 
+    # Print training history and RMSE losses
+    trainer.print_training_history()
+
+    # Print predicted vs actual for validation set (in original scale)
+    y_val_actual = y_val.cpu().numpy()
+    y_val_predicted = trainer.predict(X_val)
+    y_val_actual_original = preprocessor.inverse_transform_target(y_val_actual)
+    y_val_predicted_original = preprocessor.inverse_transform_target(y_val_predicted)
+    trainer.print_predictions_vs_actual(y_val_actual_original, y_val_predicted_original, data_type="Validation")
+
+    # Print predicted vs actual for test set (in original scale)
+    y_test_actual = y_test.cpu().numpy()
+    y_test_predicted = trainer.predict(X_test)
+    y_test_actual_original = preprocessor.inverse_transform_target(y_test_actual)
+    y_test_predicted_original = preprocessor.inverse_transform_target(y_test_predicted)
+    trainer.print_predictions_vs_actual(y_test_actual_original, y_test_predicted_original, data_type="Test")
+
+    # ------------------------------------------------------------------
+    # Final Prediction Block
+    # ------------------------------------------------------------------
+    print("\n" + "=" * 60)
+    print("Making Final Predictions on Target Books")
+    print("=" * 60)
+
+    # Load target books
+    target_books = pd.read_csv(Path("data") / "target_books_new.csv", dtype={"isbn": "string"})
+    final_ids = target_books[["isbn", "title"]].copy()
+
+    # Preprocess target books using the fitted preprocessor
+    target_books = preprocessor.impute_missing_values(target_books)
+    target_books = preprocessor.transform_features(target_books)
+    target_books = preprocessor.create_dummy_variables(target_books)
+
+    # Ensure all feature columns exist
+    target_books = target_books.reindex(columns=feature_cols, fill_value=0.0)
+
+    # Make predictions
+    X_final = torch.from_numpy(target_books.to_numpy().astype(np.float32)).to(device)
+    preds_scaled = trainer.predict(X_final)
+
+    # Inverse transform predictions back to original scale
+    final_predictions = preprocessor.inverse_transform_target(preds_scaled)
+    final_ids["pred_quantity"] = final_predictions.round(0).astype(int)
+
+    print(f"\nFinal Predictions:\n{final_ids.head(10)}")
+    # final_ids.to_csv(results_folder / "final_predictions.csv", index=False)
+    print(f"\nPredictions saved to {results_folder / 'final_predictions.csv'}")
 
 if __name__ == "__main__":
     main()
