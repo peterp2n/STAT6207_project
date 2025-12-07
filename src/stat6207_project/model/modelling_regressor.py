@@ -301,7 +301,7 @@ if __name__ == "__main__":
     })
 
     df_train, df_temp = train_test_split(df_full, test_size=0.2, random_state=SEED, shuffle=True)
-    df_val, df_test = train_test_split(df_temp, test_size=0.5, random_state=SEED+1, shuffle=True)
+    df_val, df_test = train_test_split(df_temp, test_size=0.5, random_state=SEED, shuffle=True)
 
     # Store raw data for visualization before transformation
     raw_train = df_train[TRANSFORM_COLS + [TARGET_COL]].copy()
