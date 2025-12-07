@@ -79,10 +79,48 @@ if __name__ == "__main__":
     # 1. Configuration: Imputation Split
     # ------------------------------------------------------------------
     # We are using Series Median for everything.
-    impute_cols = ["length", "width", "rating", "item_weight", "price", "print_length", "height"]
 
-    transform_cols = ["q_since_first", "avg_discount_rate", "print_length", "length", "width", "height", "rating",
-                      "price"]
+    # List of columns to impute missing values using median (series then global fallback)
+    impute_cols = [
+        "length",
+        "width",
+        "rating",
+        "item_weight",
+        "price",
+        "print_length",
+        "height"
+    ]
+
+    # List of all continuous columns that will undergo the full transformation pipeline (log1p, robust scale, clip)
+    transform_cols = [
+        "q_since_first",
+        "avg_discount_rate",
+        "print_length",
+        "length",
+        "width",
+        "height",
+        "rating",
+        "price"
+    ]
+
+    # List of columns that should receive the log1p transformation (subset of transform_cols)
+    log_cols = [
+        "q_since_first",
+        "length",
+        "width",
+        "height",
+        "price"
+    ]
+
+    # List of columns to apply clipping after scaling (subset of transform_cols)
+    # 'quantity' target variable should ideally be handled separately if it follows Pareto distribution
+    clip_cols = [
+        "avg_discount_rate",
+        "rating",
+        "item_weight",
+        "q_since_first"
+    ]
+
     raw_train = df_train[transform_cols + ["quantity"]].copy()  # Capture for Before Heatmap/Boxplots
 
     # 2. Learn Medians (Train only)
@@ -97,29 +135,36 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     # 4. Transformation Logic
     # ------------------------------------------------------------------
-    log_cols = ["print_length", "length", "width", "height", "price", "q_since_first"]
 
     # NEW: Dictionary to store the fitted RobustScaler objects
     scalers = {}
-    transformed_train = {}
+    transformed_train = {}  # Used to store transformed training data for potential analysis/visualization
 
     print("\nTransforming features...")
     for col in transform_cols:
+        # Ensure columns are treated as float for numpy/sklearn compatibility
         train_np = df_train[col].to_numpy().astype(np.float32)
         val_np = df_val[col].to_numpy().astype(np.float32)
         test_np = df_test[col].to_numpy().astype(np.float32)
 
+        # Check config lists
         is_log = col in log_cols
+        is_clipped = col in clip_cols
 
-        # 1. Log Transform
+        # Define clipping thresholds (using wider range as discussed, or original 5, 5 for certain features)
+        CLIP_MIN = -7
+        CLIP_MAX = 7
+
+        # 1. Log Transform (if applicable)
         if is_log:
             train_np = np.log1p(train_np)
             val_np = np.log1p(val_np)
             test_np = np.log1p(test_np)
 
-        # 2. Robust Scaling
-        # We MUST save this scaler to apply the exact same median/IQR to the final test set
+        # 2. Robust Scaling (Fit only on train data)
+        # We MUST save this scaler to apply the exact same median/IQR to validation and test sets
         scaler = RobustScaler()
+        # Scikit-learn requires 2D array input, reshape to (-1, 1)
         train_np = scaler.fit_transform(train_np.reshape(-1, 1)).flatten()
         val_np = scaler.transform(val_np.reshape(-1, 1)).flatten()
         test_np = scaler.transform(test_np.reshape(-1, 1)).flatten()
@@ -127,13 +172,14 @@ if __name__ == "__main__":
         # Store the scaler for later use
         scalers[col] = scaler
 
-        # 3. Clip Predictors
-        # Your previous logic: Clip X to prevent gradient instability
-        train_np = np.clip(train_np, -5, 5)
-        val_np = np.clip(val_np, -5, 5)
-        test_np = np.clip(test_np, -5, 5)
+        # 3. Clip Predictors (if applicable)
+        # Clip X to prevent gradient instability for specific features
+        if is_clipped:
+            train_np = np.clip(train_np, CLIP_MIN, CLIP_MAX)
+            val_np = np.clip(val_np, CLIP_MIN, CLIP_MAX)
+            test_np = np.clip(test_np, CLIP_MIN, CLIP_MAX)
 
-        # Assign back
+        # Assign back to DataFrames
         df_train[col] = train_np
         df_val[col] = val_np
         df_test[col] = test_np
@@ -154,7 +200,7 @@ if __name__ == "__main__":
     y_scale = y_scaler.scale_[0]
 
     # Flatten and clip for visualization consistency (same as model input)
-    qty_trans = np.clip(y_train_scaled_for_viz.flatten(), -5, 5)
+    qty_trans = y_train_scaled_for_viz.flatten()
 
     # Store for correlation heatmap and scatterplots
     transformed_train["quantity"] = qty_trans
@@ -242,6 +288,7 @@ if __name__ == "__main__":
         "series"
     ]
     drop_cols = [
+        "price",
         "height",
         "length",
         "width",
@@ -270,23 +317,29 @@ if __name__ == "__main__":
     y_test_scaled = y_scaler.transform(qty_test_log).flatten()
 
     # Clip all targets consistently with training
-    y_train = torch.from_numpy(np.clip(y_train_scaled_for_viz.flatten(), -5, 5).astype(np.float32)).to(device)
-    y_val = torch.from_numpy(np.clip(y_val_scaled, -5, 5).astype(np.float32)).to(device)
-    y_test = torch.from_numpy(np.clip(y_test_scaled, -5, 5).astype(np.float32)).to(device)
+    y_train = torch.from_numpy(y_train_scaled_for_viz.flatten().astype(np.float32)).to(device)
+    y_val = torch.from_numpy(y_val_scaled.astype(np.float32)).to(device)
+    y_test = torch.from_numpy(y_test_scaled.astype(np.float32)).to(device)
 
     # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
-    model = Regressor(input_dim=X_train.shape[1], dropout=0.5).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-3)
+    drop = 0.5
+    learning_rate = 0.001
+    decay = 1e-3
+    b_size = 128
+    epochs = 100
+
+    model = Regressor(input_dim=X_train.shape[1], dropout=drop).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=decay)
     loss_fn = nn.MSELoss()
 
-    train_dl = DataLoader(TensorDataset(X_train, y_train), batch_size=128, shuffle=True)
-    val_dl = DataLoader(TensorDataset(X_val, y_val), batch_size=128, shuffle=False)
+    train_dl = DataLoader(TensorDataset(X_train, y_train), batch_size=b_size, shuffle=True)
+    val_dl = DataLoader(TensorDataset(X_val, y_val), batch_size=b_size, shuffle=False)
 
     train_rmses, val_rmses, best_rmse, best_ep = [], [], float('inf'), 0
 
-    for epoch in range(50):
+    for epoch in range(epochs):
         model.train()
         train_loss = 0.0
         for xb, yb in train_dl:
@@ -331,7 +384,7 @@ if __name__ == "__main__":
             vals = scalers[col].transform(vals.reshape(-1, 1)).flatten()
 
         # C. Clip (Same threshold as training)
-        target_books[col] = np.clip(vals, -5, 5)
+        target_books[col] = np.clip(vals, CLIP_MIN, CLIP_MAX)
 
     # 3. Predict
     target_books = pd.get_dummies(target_books, columns=dummy_cols, drop_first=True)
