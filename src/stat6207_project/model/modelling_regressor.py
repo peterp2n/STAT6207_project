@@ -10,6 +10,24 @@ from regressor import Regressor
 
 device = torch.device("mps")
 
+
+def apply_imputation(df_target, source_medians, fallback_medians):
+    """
+    Applies series-specific medians.
+    If a series is unknown (NaN), fills with global training median.
+    """
+    # Join the target with the learned medians
+    # We use 'left' to keep the target rows intact
+    df_merged = df_target.join(source_medians, on="series", rsuffix="_median")
+
+    for col in impute_cols:
+        median_col = f"{col}_median"
+
+        # Coalesce: 1. Original Value -> 2. Series Median -> 3. Global Median
+        df_target[col] = df_target[col].fillna(df_merged[median_col]).fillna(fallback_medians[col])
+
+    return df_target
+
 def log_and_plot_regression_history(
     epoch: int,
     train_mse: float,
@@ -76,8 +94,19 @@ if __name__ == "__main__":
     results_folder = Path("results")
     encoder_path = results_folder / "encoder_weights.pth"
 
-    series_path = data_folder / "target_series_new.csv"
-    df_full = pd.read_csv(series_path, dtype={"isbn": "string"})
+    series_path = data_folder / "target_series_new_with_features2.csv"
+    df_full = pd.read_csv(series_path, dtype={
+        "isbn": "string",
+        "print_length": "float32",
+        "number_of_reviews": "float32",
+        "length": "float32",
+        "item_weight": "float32",
+        "width": "float32",
+        "height": "float32",
+        "rating": "float32",
+        "price": "float32",
+        "avg_discount_rate": "float32"
+    })
 
     df_train, df_temp = train_test_split(
         df_full,
@@ -94,23 +123,64 @@ if __name__ == "__main__":
         shuffle=True,
     )
 
+    impute_cols = ["print_length", "length", "width", "height", "rating", "item_weight", "price"]
+
+    # 1. LEARN: Calculate medians only on Training data
+    # We group by series to get specific stats, and also get global stats for fallbacks
+    series_medians = df_train.groupby("series")[impute_cols].median()
+    global_medians = df_train[impute_cols].median()
+
+
+
+
+
+    # 2. APPLY: Transform all sets using the knowledge from Train
+    print("Imputing missing values...")
+    df_train = apply_imputation(df_train.copy(), series_medians, global_medians)
+    df_val = apply_imputation(df_val.copy(), series_medians, global_medians)
+    df_test = apply_imputation(df_test.copy(), series_medians, global_medians)
+
+    # Verify purity
+    print(f"Missing values in Train after impute: {df_train[impute_cols].isna().sum().sum()}")
+    print(f"Missing values in Test  after impute: {df_test[impute_cols].isna().sum().sum()}")
+
+    # ------------------------------------------------------------------
+    # Resume existing pipeline
+    # ------------------------------------------------------------------
+
+    # Now continue with your transform_cols logic...
     transform_cols = [
-        "q_since_first", "avg_discount_rate"
+        "q_since_first", "avg_discount_rate", "print_length", "length", "width", "height", "rating", "price"
     ]
 
     show = False
     for col in transform_cols:
-        df_train[col] = np.log1p(df_train[col])
+        # Log1p transform
+        train_np = np.log1p(df_train[col].to_numpy())
+        val_np = np.log1p(df_val[col].to_numpy())
+        test_np = np.log1p(df_test[col].to_numpy())
+
+
         df_train[col].plot.box()
         plt.title(f"Boxplot of {col} after log1p transformation")
         if show:
             plt.show()
 
-        train_mean = df_train[col].mean()
-        train_std = df_train[col].std()
+        train_mean = train_np.mean()
+        train_std = train_np.std()
+        # Standardize
+        train_np = (train_np - train_mean) / train_std
+        val_np = (val_np - train_mean) / train_std
+        test_np = (test_np - train_mean) / train_std
 
-        df_val[col] = (np.log1p(df_val[col]) - train_mean) / train_std
-        df_test[col] = (np.log1p(df_test[col]) - train_mean) / train_std
+        # Clip using +3/-3 stddev
+        train_np = np.clip(train_np, -3, 3)
+        val_np = np.clip(val_np, -3, 3)
+        test_np = np.clip(test_np, -3, 3)
+
+        df_train[col] = train_np
+        df_val[col] = val_np
+        df_test[col] = test_np
 
         df_val[col].plot.box()
         plt.title(f"Boxplot of {col} in Val set after log1p and standardization")
@@ -130,12 +200,13 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
 
     target_col = "quantity"
-    metadata_cols = ["isbn", "title", "year_quarter"]  # keep these for later merging
+    metadata_cols = ["isbn", "title", "year_quarter", "series"]
+    drop_cols = ["price"]
     feat_cols = [c for c in df_full.columns if c not in (metadata_cols + [target_col])]
 
-    X_train = torch.from_numpy(df_train[feat_cols].values.astype(np.float32))
-    X_val = torch.from_numpy(df_val[feat_cols].values.astype(np.float32))
-    X_test = torch.from_numpy(df_test[feat_cols].values.astype(np.float32))
+    X_train = torch.from_numpy(df_train[feat_cols].to_numpy().astype(np.float32))
+    X_val = torch.from_numpy(df_val[feat_cols].to_numpy().astype(np.float32))
+    X_test = torch.from_numpy(df_test[feat_cols].to_numpy().astype(np.float32))
 
     # Step 1: Log-transform the target in all splits
     qty_train_log = np.log1p(df_train[target_col])
@@ -260,7 +331,7 @@ if __name__ == "__main__":
     model.eval()
     with torch.no_grad():
         X_all = torch.from_numpy(
-            target_books_new[feat_cols].values.astype(np.float32)
+            target_books_new[feat_cols].to_numpy().astype(np.float32)
         ).to(device)
         preds_all = model(X_all).cpu().numpy()
     target_books_new["pred_quantity"] = np.expm1(preds_all * target_train_std + target_train_mean)
