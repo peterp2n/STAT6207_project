@@ -9,14 +9,25 @@ from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
 from regressor import Regressor
+import random
 
-if torch.backends.mps.is_available():
-    device = torch.device("mps")
-elif torch.cuda.is_available():
-    device = torch.device("cuda")
-else:
-    device = torch.device("cpu")
 
+def set_seed(seed_value=42):
+    """Set seeds for reproducibility across all libraries."""
+    np.random.seed(seed_value)
+    torch.manual_seed(seed_value)
+    random.seed(seed_value)
+
+    # If using CUDA/GPU, ensure deterministic behavior
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed_value)
+        torch.cuda.manual_seed_all(seed_value)  # if using multi-GPU
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+    # If using MPS/Apple Silicon
+    if torch.backends.mps.is_available():
+        torch.mps.manual_seed(seed_value)
 
 def apply_imputation(df_target, source_medians, fallback_medians, impute_cols):
     """
@@ -60,6 +71,15 @@ def plot_rmse_curve(train_history, val_history, best_epoch=None):
 
 
 if __name__ == "__main__":
+
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
+    set_seed(42)
     data_folder = Path("data")
     data_folder.mkdir(parents=True, exist_ok=True)
 
@@ -72,7 +92,7 @@ if __name__ == "__main__":
         "avg_discount_rate": "float32"
     })
 
-    df_train, df_temp = train_test_split(df_full, test_size=0.3, random_state=42, shuffle=True)
+    df_train, df_temp = train_test_split(df_full, test_size=0.2, random_state=42, shuffle=True)
     df_val, df_test = train_test_split(df_temp, test_size=0.5, random_state=42, shuffle=True)
 
     # ------------------------------------------------------------------
