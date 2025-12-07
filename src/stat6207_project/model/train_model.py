@@ -18,11 +18,11 @@ from regressor import Regressor
 class TrainingConfig:
     """Configuration for model training."""
     # Model hyperparameters
-    dropout: float = 0.0
+    dropout: float = 0
     learning_rate: float = 0.001
-    weight_decay: float = 0.0
+    weight_decay: float = 0
     batch_size: int = 128
-    epochs: int = 100
+    epochs: int = 150
 
     # Data preprocessing
     clip_min: float = -7.0
@@ -44,7 +44,7 @@ class TrainingConfig:
     ])
 
     clip_cols: List[str] = field(default_factory=lambda: [
-        "avg_discount_rate", "rating", "item_weight", "q_since_first"
+        "avg_discount_rate", "rating", "item_weight"
     ])
 
     dummy_cols: List[str] = field(default_factory=lambda: [
@@ -55,13 +55,19 @@ class TrainingConfig:
         "isbn", "title", "year_quarter", "series"
     ])
 
+    drop_cols: List[str] = field(default_factory=lambda: [
+        "number_of_reviews", "price", "height", "length", "width"
+    ])
+
     target_col: str = "quantity"
 
     features_to_use: List[str] = field(default_factory=lambda: [
         "q_since_first",
-        "avg_discount_rate"
-        "price", "height", "item_weight",
-        "print_length", "rating",
+        "avg_discount_rate",
+        "price",
+        "print_length",
+        "item_weight",
+        "rating",
     ])
 
 
@@ -158,14 +164,13 @@ class DataPreprocessor:
     def select_features(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
         """Select final features for model training."""
         if self.feature_columns is None:
-            drop_cols = [c for c in self.config.transform_cols if c not in self.config.features_to_use]
             self.feature_columns = [
                 c for c in df.columns
-                if c not in self.config.meta_cols + drop_cols + [self.config.target_col]
+                if c not in self.config.meta_cols + self.config.drop_cols + [self.config.target_col]
             ]
             print(f"\nSelected {len(self.feature_columns)} features")
-            print(f"Using: {self.config.features_to_use}")
-            print(f"Dropped: {drop_cols}")
+            print(f"Using: {self.feature_columns}")
+            print(f"Dropped: {self.config.drop_cols}")
 
         return df[self.feature_columns], self.feature_columns
 
@@ -482,7 +487,7 @@ def load_and_split_data(
         df_temp, test_size=0.5, random_state=config.seed + 1, shuffle=True
     )
 
-    print(f"Split: Train={len(df_train)} | Val={len(df_val)} | Test={len(df_test)}")
+    print(f"Split: Train={[df_train.shape[0], df_train.shape[1]]} | Val={[df_val.shape[0], df_val.shape[1]]} | Test={[df_test.shape[0], df_test.shape[1]]}")
     return df_train, df_val, df_test
 
 
