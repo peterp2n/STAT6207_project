@@ -235,7 +235,20 @@ if __name__ == "__main__":
     df_test = pd.get_dummies(df_test, columns=dummy_cols, drop_first=True)
 
     target_col = "quantity"
-    feat_cols = [c for c in df_train.columns if c not in ["isbn", "title", "year_quarter", "series", target_col]]
+    meta_data_cols = [
+        "isbn",
+        "title",
+        "year_quarter",
+        "series"
+    ]
+    drop_cols = [
+        "height",
+        "length",
+        "width",
+        "item_weight",
+        "number_of_reviews"
+    ]
+    feat_cols = [c for c in df_train.columns if c not in meta_data_cols + drop_cols + [target_col]]
 
     print(f"Features being used: {feat_cols}")
 
