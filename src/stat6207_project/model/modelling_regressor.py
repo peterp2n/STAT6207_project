@@ -94,7 +94,7 @@ if __name__ == "__main__":
     results_folder = Path("results")
     encoder_path = results_folder / "encoder_weights.pth"
 
-    series_path = data_folder / "target_series_new_with_features2.csv"
+    series_path = data_folder / "target_series_new_with_features.csv"
     df_full = pd.read_csv(series_path, dtype={
         "isbn": "string",
         "print_length": "float32",
@@ -125,14 +125,16 @@ if __name__ == "__main__":
 
     impute_cols = ["print_length", "length", "width", "height", "rating", "item_weight", "price"]
 
+    # Capture raw train data before any imputation or transformation
+    transform_cols = [
+        "q_since_first", "avg_discount_rate", "print_length", "length", "width", "height", "rating", "price"
+    ]
+    raw_train = df_train[transform_cols].copy()
+
     # 1. LEARN: Calculate medians only on Training data
     # We group by series to get specific stats, and also get global stats for fallbacks
     series_medians = df_train.groupby("series")[impute_cols].median()
     global_medians = df_train[impute_cols].median()
-
-
-
-
 
     # 2. APPLY: Transform all sets using the knowledge from Train
     print("Imputing missing values...")
@@ -149,10 +151,6 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
 
     # Now continue with your transform_cols logic...
-    transform_cols = [
-        "q_since_first", "avg_discount_rate", "print_length", "length", "width", "height", "rating", "price"
-    ]
-
     show = False
     for col in transform_cols:
         # Log1p transform
@@ -190,6 +188,23 @@ if __name__ == "__main__":
         plt.title(f"Boxplot of {col} in Test set after log1p and standardization")
         if show:
             plt.show()
+
+    # New: Plot side-by-side boxplots for each transformed column (train set only)
+    # Raw (pre-impute/transform) vs. Final Preprocessed
+    for col in transform_cols:
+        fig, axes = plt.subplots(1, 2, figsize=(10, 6), sharey=False)  # Different scales, as raw and transformed differ
+
+        raw_train[col].plot.box(ax=axes[0])
+        axes[0].set_title(f"Raw {col} (Train Set)")
+        axes[0].set_ylabel(col)
+
+        df_train[col].plot.box(ax=axes[1])
+        axes[1].set_title(f"Preprocessed {col} (Train Set)")
+        axes[1].set_ylabel("Transformed Value")
+
+        plt.suptitle(f"Preprocessing Effect: {col}", fontsize=14)
+        plt.tight_layout()
+        plt.show()
 
     print(f"Train rows : {len(df_train):,}")
     print(f"Val   rows : {len(df_val):,}")
