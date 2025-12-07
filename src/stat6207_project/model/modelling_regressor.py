@@ -307,13 +307,32 @@ if __name__ == "__main__":
         "year_quarter",
         "series"
     ]
+    potential_feat_cols = [
+        "price",
+        "height",
+        "length",
+        "width",
+        "item_weight",
+        "print_length",
+        "number_of_reviews",
+        "rating",
+        "q_since_first",
+        "q_num",
+        target_col
+    ]
+
     drop_cols = [
         "price",
         "height",
         "length",
         "width",
         "item_weight",
-        "number_of_reviews"
+        "print_length",
+        "number_of_reviews",
+        "rating",
+        "q_since_first",
+        "q_num",
+        target_col
     ]
     feat_cols = [c for c in df_train.columns if c not in meta_data_cols + drop_cols + [target_col]]
 
