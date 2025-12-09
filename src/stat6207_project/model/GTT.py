@@ -4,10 +4,14 @@ import numpy as np
 import torch
 from transformers import TimeSeriesTransformerConfig, TimeSeriesTransformerForPrediction
 import matplotlib.pyplot as plt
+from sklearn.model_selection import TimeSeriesSplit
 
 # ==================== PATH & LOAD DATA ====================
 data_folder = Path("data")
 df = pd.read_csv(data_folder / "target_series_new_with_features2.csv")
+
+
+target_col = 'quantity'
 
 # Drop year_quarter completely – we only use q_since_first as time index
 df = df.drop(columns=['year_quarter'], errors='ignore')
@@ -61,6 +65,22 @@ for isbn_id, group in grouped:
 
 print(f"\nFound {len(series_list)} unique books")
 print(f"Longest history: {max(lengths)} quarters")
+
+# ==================== TIME SERIES SPLIT ====================
+print("\n" + "=" * 60)
+print("TIME SERIES SPLIT SETUP")
+print("=" * 60)
+
+# Use TimeSeriesSplit to create train/validation splits
+# We'll use the last split for final training
+n_splits = 3
+tscv = TimeSeriesSplit(n_splits=n_splits)
+
+# Create indices array for splitting
+series_indices = np.arange(len(series_list))
+
+print(f"Using {n_splits}-fold Time Series Split")
+print(f"Total series: {len(series_list)}")
 
 # ==================== PAD ALL SERIES ====================
 max_len = max(lengths)
@@ -159,84 +179,186 @@ static_real_t = static_real_t.to(device)
 
 # Only optimize unfrozen parameters
 optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=6e-4)
-model.train()
 
 required_past = config.context_length + max(config.lags_sequence)
-print(f"\nTraining started (required past: {required_past} quarters)...")
-print("=" * 60)
 
-# Track training history
-train_history = {'loss': [], 'count': []}
+# Track history across all folds
+all_fold_history = []
 
-for epoch in range(30):
-    total_loss = 0.0
-    count = 0
+# Use the last split for final training
+for fold_idx, (train_idx, val_idx) in enumerate(tscv.split(series_indices), 1):
+    print("\n" + "=" * 60)
+    print(f"TIME SERIES FOLD {fold_idx}/{n_splits}")
+    print("=" * 60)
+    print(f"Train series: {len(train_idx)} | Validation series: {len(val_idx)}")
 
-    for i in range(len(series_list)):
-        L = lengths[i]
-        if L <= required_past + config.prediction_length:
-            continue
+    # Convert to sets for faster lookup
+    train_set = set(train_idx)
+    val_set = set(val_idx)
 
-        # Use most recent history
-        start = max(0, L - required_past)
-        pv = past_values_t[i:i+1, start:L]
-        pt = past_time_feat_t[i:i+1, start:L]
-        pm = past_mask_t[i:i+1, start:L]
+    model.train()
+    train_history = {'loss': [], 'val_loss': [], 'count': [], 'val_count': []}
 
-        fv = past_values_t[i:i+1, L:L+4]          # next 4 quarters (if exist)
-        ft = past_time_feat_t[i:i+1, L:L+4]
+    print(f"Training started (required past: {required_past} quarters)...")
 
-        if fv.shape[1] < 4:
-            continue
+    for epoch in range(30):
+        # Training phase
+        total_train_loss = 0.0
+        train_count = 0
 
-        try:
-            outputs = model(
-                past_values=pv,
-                past_time_features=pt,
-                past_observed_mask=pm,
-                static_categorical_features=static_cat_t[i:i+1],
-                static_real_features=static_real_t[i:i+1],
-                future_values=fv,
-                future_time_features=ft
-            )
+        for i in train_idx:
+            L = lengths[i]
+            if L <= required_past + config.prediction_length:
+                continue
 
-            loss = outputs.loss
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], 1.0)
-            optimizer.step()
+            # Use most recent history
+            start = max(0, L - required_past)
+            pv = past_values_t[i:i+1, start:L]
+            pt = past_time_feat_t[i:i+1, start:L]
+            pm = past_mask_t[i:i+1, start:L]
 
-            total_loss += loss.item()
-            count += 1
-        except Exception as e:
-            print(f"Warning: Error processing series {i}: {e}")
-            continue
+            fv = past_values_t[i:i+1, L:L+4]          # next 4 quarters (if exist)
+            ft = past_time_feat_t[i:i+1, L:L+4]
 
-    if count > 0:
-        avg_loss = total_loss / count
-        train_history['loss'].append(avg_loss)
-        train_history['count'].append(count)
+            if fv.shape[1] < 4:
+                continue
 
+            try:
+                outputs = model(
+                    past_values=pv,
+                    past_time_features=pt,
+                    past_observed_mask=pm,
+                    static_categorical_features=static_cat_t[i:i+1],
+                    static_real_features=static_real_t[i:i+1],
+                    future_values=fv,
+                    future_time_features=ft
+                )
+
+                loss = outputs.loss
+                optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], 1.0)
+                optimizer.step()
+
+                total_train_loss += loss.item()
+                train_count += 1
+            except Exception as e:
+                if epoch == 0:  # Only print first epoch
+                    print(f"Warning: Error processing train series {i}: {e}")
+                continue
+
+        # Validation phase
+        model.eval()
+        total_val_loss = 0.0
+        val_count = 0
+
+        with torch.no_grad():
+            for i in val_idx:
+                L = lengths[i]
+                if L <= required_past + config.prediction_length:
+                    continue
+
+                start = max(0, L - required_past)
+                pv = past_values_t[i:i+1, start:L]
+                pt = past_time_feat_t[i:i+1, start:L]
+                pm = past_mask_t[i:i+1, start:L]
+
+                fv = past_values_t[i:i+1, L:L+4]
+                ft = past_time_feat_t[i:i+1, L:L+4]
+
+                if fv.shape[1] < 4:
+                    continue
+
+                try:
+                    outputs = model(
+                        past_values=pv,
+                        past_time_features=pt,
+                        past_observed_mask=pm,
+                        static_categorical_features=static_cat_t[i:i+1],
+                        static_real_features=static_real_t[i:i+1],
+                        future_values=fv,
+                        future_time_features=ft
+                    )
+
+                    total_val_loss += outputs.loss.item()
+                    val_count += 1
+                except Exception as e:
+                    if epoch == 0:
+                        print(f"Warning: Error processing val series {i}: {e}")
+                    continue
+
+        model.train()
+
+        # Record losses
+        if train_count > 0:
+            avg_train_loss = total_train_loss / train_count
+            train_history['loss'].append(avg_train_loss)
+            train_history['count'].append(train_count)
+
+        if val_count > 0:
+            avg_val_loss = total_val_loss / val_count
+            train_history['val_loss'].append(avg_val_loss)
+            train_history['val_count'].append(val_count)
+
+        # Print progress
         if (epoch + 1) % 5 == 0 or epoch == 0:
-            print(f"Epoch {epoch+1:2d} | Avg Loss: {avg_loss:.6f} | Samples: {count}")
+            train_str = f"Train: {avg_train_loss:.6f} ({train_count})" if train_count > 0 else "Train: N/A"
+            val_str = f"Val: {avg_val_loss:.6f} ({val_count})" if val_count > 0 else "Val: N/A"
+            print(f"Epoch {epoch+1:2d} | {train_str} | {val_str}")
+
+    all_fold_history.append({
+        'fold': fold_idx,
+        'train_history': train_history,
+        'train_idx': train_idx,
+        'val_idx': val_idx
+    })
+
+    print(f"\nFold {fold_idx} complete!")
 
 print("\n" + "=" * 60)
 print("TRAINING COMPLETE!")
 print("=" * 60)
 
+# Print fold summaries
+print("\n" + "=" * 60)
+print("FOLD SUMMARIES")
+print("=" * 60)
+for fold_data in all_fold_history:
+    fold = fold_data['fold']
+    history = fold_data['train_history']
+    if history['loss'] and history['val_loss']:
+        final_train = history['loss'][-1]
+        final_val = history['val_loss'][-1]
+        print(f"Fold {fold}: Final Train Loss = {final_train:.6f} | Final Val Loss = {final_val:.6f}")
+
 # ==================== PLOT TRAINING CURVE ====================
-if train_history['loss']:
-    plt.figure(figsize=(10, 6))
-    plt.plot(train_history['loss'], label="Training Loss", linewidth=2.5, color="#1f77b4")
-    plt.xlabel("Epoch", fontsize=12)
-    plt.ylabel("Loss (NLL)", fontsize=12)
-    plt.title("TimeSeriesTransformer Training Loss (Frozen Layers)", fontsize=14)
-    plt.legend(fontsize=11)
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig("results/training_curve_frozen.png", dpi=150)
-    print("\n✓ Training curve saved to results/training_curve_frozen.png")
-    plt.show()
+print("\n" + "=" * 60)
+print("Plotting Training Curves")
+print("=" * 60)
+
+fig, axes = plt.subplots(1, n_splits, figsize=(6*n_splits, 5))
+if n_splits == 1:
+    axes = [axes]
+
+for fold_data, ax in zip(all_fold_history, axes):
+    fold = fold_data['fold']
+    history = fold_data['train_history']
+
+    if history['loss']:
+        ax.plot(history['loss'], label="Training Loss", linewidth=2.5, color="#1f77b4")
+    if history['val_loss']:
+        ax.plot(history['val_loss'], label="Validation Loss", linewidth=2.5, color="#ff7f0e")
+
+    ax.set_xlabel("Epoch", fontsize=11)
+    ax.set_ylabel("Loss (NLL)", fontsize=11)
+    ax.set_title(f"Fold {fold}", fontsize=12, fontweight='bold')
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig("results/training_curves_tscv_frozen.png", dpi=150)
+print("✓ Training curves saved to results/training_curves_tscv_frozen.png")
+plt.show()
 
 # ==================== PREDICTION (next 4 quarters) ====================
 print("\n" + "=" * 60)
@@ -309,3 +431,63 @@ print(f"\n✓ Predictions saved to results/predictions_frozen_model.csv")
 # Save model
 torch.save(model.state_dict(), "results/timeseries_model_frozen.pth")
 print(f"✓ Model saved to results/timeseries_model_frozen.pth")
+
+# Now my target_df is called
+target_df = pd.read_csv(data_folder / "target_books_new.csv")
+# My target_df contains 8 isbns with different values of q_since_first, as well as other static features.
+# I want to generate predictions for these books using the trained model.
+# create a new column called 'predicted_quantity' in target_df
+# Just use the trained model to generate predictions for these books
+print("\n" + "=" * 60)
+print("GENERATING PREDICTIONS FOR TARGET BOOKS")
+print("=" * 60)
+model.eval()
+target_predictions = []
+with torch.no_grad():
+    for idx, row in target_df.iterrows():
+        try:
+            isbn_str = row['isbn']
+            if isbn_str not in label_maps['isbn']:
+                print(f"Warning: ISBN {isbn_str} not in training data.")
+                continue
+            isbn_encoded = np.where(label_maps['isbn'] == isbn_str)[0][0]
+
+            # Extract series data
+            series_data = next((s for s in series_list if s['isbn'] == isbn_encoded), None)
+            if series_data is None:
+                print(f"Warning: No series data for ISBN {isbn_str}.")
+                continue
+
+            L = len(series_data['values'])
+
+            # Full history as past
+            pv = past_values_t[isbn_encoded:isbn_encoded+1, :L]
+            pt = past_time_feat_t[isbn_encoded:isbn_encoded+1, :L]
+            pm = past_mask_t[isbn_encoded:isbn_encoded+1, :L]
+
+            # Build future time features for next 4 quarters
+            last_q_num = int(pt[0, -1, 0].item()) if L > 0 else 1
+            next_q_nums = [((last_q_num + j - 1) % 4) + 1 for j in range(1, 5)]
+            mean_discount = row['avg_discount_rate']
+            if np.isnan(mean_discount):
+                mean_discount = 0.0
+
+            future_time = torch.tensor([[q, mean_discount] for q in next_q_nums],
+                                     dtype=torch.float32).unsqueeze(0).to(device)
+
+            out = model.generate(
+                past_values=pv,
+                past_time_features=pt,
+                past_observed_mask=pm,
+                static_categorical_features=static_cat_t[isbn_encoded:isbn_encoded+1],
+                static_real_features=static_real_t[isbn_encoded:isbn_encoded+1],
+                future_time_features=future_time,
+            )
+
+            pred = out.sequences.mean(dim=1).cpu().numpy().flatten().round(1)
+            target_predictions.append((isbn_str, row['title'], pred))
+        except Exception as e:
+            print(f"Warning: Prediction error for ISBN {isbn_str}: {e}")
+            continue
+
+print("end")
