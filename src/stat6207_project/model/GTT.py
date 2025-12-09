@@ -33,3 +33,7 @@ label_maps['isbn'] = isbn_uniques
 
 # Numeric columns for imputation
 numeric_cols = ['print_length', 'item_weight', 'length', 'width', 'height', 'rating', 'price']
+
+# Create a times series split based on 'q_since_first' using 3 splits
+tscv = TimeSeriesSplit(n_splits=3)
+splits = list(tscv.split(df))
