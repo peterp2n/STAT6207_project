@@ -77,7 +77,7 @@ class DataPreprocessor:
     def fit_imputation(self, df_train: pd.DataFrame) -> None:
         self.series_medians = df_train.groupby("series")[self.config.impute_cols].median()
         self.global_medians = df_train[self.config.impute_cols].median()
-        print(f"✅ Computed medians for {len(self.config.impute_cols)} columns")
+        print(f"Computed medians for {len(self.config.impute_cols)} columns")
 
     def impute_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
@@ -106,7 +106,7 @@ class DataPreprocessor:
 
             df_train[col] = values
 
-        print(f"✅ Fitted {len(self.config.transform_cols)} feature scalers")
+        print(f"Fitted {len(self.config.transform_cols)} feature scalers")
         return df_train
 
     def transform_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -130,7 +130,7 @@ class DataPreprocessor:
         self.y_scaler = RobustScaler()
         target_log = np.log1p(df_train[self.config.target_col].to_numpy().reshape(-1, 1))
         transformed = self.y_scaler.fit_transform(target_log).flatten()
-        print(f"✅ Target scaler: center={self.y_scaler.center_[0]:.4f}, scale={self.y_scaler.scale_[0]:.4f}")
+        print(f"Target scaler: center={self.y_scaler.center_[0]:.4f}, scale={self.y_scaler.scale_[0]:.4f}")
         return transformed
 
     def transform_target(self, df: pd.DataFrame) -> np.ndarray:
@@ -147,7 +147,7 @@ class DataPreprocessor:
         self.dummy_columns = [c for c in train_dummy.columns
                               if any(c.startswith(prefix + "_") for prefix in self.config.dummy_cols)]
 
-        print(f"✅ Safe dummies: {len(self.dummy_columns)} columns")
+        print(f"Safe dummies: {len(self.dummy_columns)} columns")
         result = [train_dummy]
 
         if df_val is not None:
@@ -175,7 +175,7 @@ class DataPreprocessor:
         all_cols = [c for c in df_train.columns
                     if c not in self.config.meta_cols + [self.config.target_col]]
 
-        print(f"\n🚀 PHASE 1: Greedy Forward Selection ({len(remaining)} candidates)")
+        print(f"\nPHASE 1: Greedy Forward Selection ({len(remaining)} candidates)")
         print("=" * 60)
 
         while remaining:
@@ -204,12 +204,12 @@ class DataPreprocessor:
             selected.append(best_feature)
             remaining.remove(best_feature)
             best_rmse_history.append((selected.copy(), best_rmse))
-            print(f"➕ '{best_feature}' → RMSE: {best_rmse:.4f} | Features: {len(selected)}")
+            print(f"'{best_feature}' → RMSE: {best_rmse:.4f} | Features: {len(selected)}")
 
         self.best_features = min(best_rmse_history, key=lambda x: x[1])[0]
         drop_cols = [c for c in self.config.potential_feat_cols if c not in self.best_features]
-        print(f"\n🏆 BEST: {self.best_features}")
-        print(f"🗑️  DROP: {drop_cols}")
+        print(f"\nBEST: {self.best_features}")
+        print(f"DROP: {drop_cols}")
         return self.best_features, drop_cols
 
     def _evaluate_feature_set(self, X_train: torch.Tensor, y_train: torch.Tensor,
@@ -250,9 +250,9 @@ class DataPreprocessor:
         return self.feature_columns
 
 
-# [ModelTrainer class remains exactly the same as your previous version]
 class ModelTrainer:
-    # ... [Keep all your existing ModelTrainer methods unchanged - they work perfectly]
+    """Handles model training and evaluation."""
+
     def __init__(self, config: TrainingConfig, device: torch.device):
         self.config = config
         self.device = device
@@ -260,9 +260,204 @@ class ModelTrainer:
         self.best_state: dict = None
         self.train_history: Dict[str, List[float]] = {"train_rmse": [], "val_rmse": []}
 
-    # [Include all your existing _train_epoch, _validate, train, evaluate, predict,
-    #  print_training_history, print_predictions_vs_actual, plot_rmse_curve, plot_actual_vs_predicted]
-    # ... [exactly as in your previous OOP version]
+    def _train_epoch(
+            self,
+            model: nn.Module,
+            dataloader: DataLoader,
+            optimizer: torch.optim.Optimizer,
+            criterion: nn.Module
+    ) -> float:
+        """Train model for one epoch."""
+        model.train()
+        total_loss = 0.0
+        num_samples = 0
+
+        for X_batch, y_batch in dataloader:
+            X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
+            optimizer.zero_grad()
+            predictions = model(X_batch)
+            loss = criterion(predictions, y_batch)
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item() * len(X_batch)
+            num_samples += len(X_batch)
+
+        return np.sqrt(total_loss / num_samples)
+
+    def _validate(
+            self,
+            model: nn.Module,
+            dataloader: DataLoader,
+            criterion: nn.Module
+    ) -> float:
+        """Evaluate model on validation set."""
+        model.eval()
+        total_loss = 0.0
+        num_samples = 0
+
+        with torch.no_grad():
+            for X_batch, y_batch in dataloader:
+                X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
+                predictions = model(X_batch)
+                loss = criterion(predictions, y_batch)
+                total_loss += loss.item() * len(X_batch)
+                num_samples += len(X_batch)
+
+        return np.sqrt(total_loss / num_samples)
+
+    def train(
+            self,
+            X_train: torch.Tensor,
+            y_train: torch.Tensor,
+            X_val: torch.Tensor,
+            y_val: torch.Tensor
+    ) -> Tuple[float, int]:
+        """Train model and track best performance."""
+        self.model = Regressor(input_dim=X_train.shape[1], dropout=self.config.dropout).to(self.device)
+        optimizer = torch.optim.Adam(
+            self.model.parameters(),
+            lr=self.config.learning_rate,
+            weight_decay=self.config.weight_decay
+        )
+        criterion = nn.MSELoss()
+
+        train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=self.config.batch_size, shuffle=True)
+        val_loader = DataLoader(TensorDataset(X_val, y_val), batch_size=self.config.batch_size, shuffle=False)
+
+        best_val_rmse = float('inf')
+        best_epoch = 0
+
+        print(f"\n{'=' * 60}\nTraining for {self.config.epochs} epochs | {X_train.shape[1]} features\n{'=' * 60}")
+
+        for epoch in range(self.config.epochs):
+            train_rmse = self._train_epoch(self.model, train_loader, optimizer, criterion)
+            val_rmse = self._validate(self.model, val_loader, criterion)
+
+            self.train_history["train_rmse"].append(train_rmse)
+            self.train_history["val_rmse"].append(val_rmse)
+
+            is_best = val_rmse < best_val_rmse
+            if is_best:
+                best_val_rmse = val_rmse
+                best_epoch = epoch + 1
+                self.best_state = copy.deepcopy(self.model.state_dict())
+
+            if (epoch + 1) % 10 == 0 or is_best:
+                status = " BEST" if is_best else ""
+                print(f"Epoch {epoch + 1:3d} | Train: {train_rmse:.4f} | Val: {val_rmse:.4f}{status}")
+
+        return best_val_rmse, best_epoch
+
+    def evaluate(self, X_test: torch.Tensor, y_test: torch.Tensor) -> float:
+        """Evaluate best model on test set."""
+        if self.best_state is None:
+            raise ValueError("No trained model found. Call train() first.")
+
+        self.model.load_state_dict(self.best_state)
+        self.model.eval()
+
+        test_loader = DataLoader(TensorDataset(X_test, y_test), batch_size=self.config.batch_size, shuffle=False)
+        test_rmse = self._validate(self.model, test_loader, nn.MSELoss())
+        return test_rmse
+
+    def predict(self, X: torch.Tensor) -> np.ndarray:
+        """Make predictions with the best model."""
+        if self.best_state is None:
+            raise ValueError("No trained model found. Call train() first.")
+
+        self.model.load_state_dict(self.best_state)
+        self.model.eval()
+
+        with torch.no_grad():
+            predictions = self.model(X.to(self.device)).cpu().numpy().flatten()
+
+        return predictions
+
+    def print_training_history(self):
+        print("\n" + "=" * 70)
+        print("TRAINING HISTORY - RMSE Losses")
+        print("=" * 70)
+        print(f"{'Epoch':<10} {'Train RMSE':<18} {'Val RMSE':<18} {'Status':<15}")
+        print("-" * 70)
+
+        for epoch, (train_rmse, val_rmse) in enumerate(
+                zip(self.train_history["train_rmse"], self.train_history["val_rmse"]),
+                start=1
+        ):
+            if epoch % 10 == 0 or epoch == len(self.train_history["train_rmse"]):
+                status = "Best" if epoch == len(self.train_history["train_rmse"]) else ""
+                print(f"{epoch:<10} {train_rmse:<18.4f} {val_rmse:<18.4f} {status:<15}")
+
+        print("=" * 70)
+
+    def print_predictions_vs_actual(self, y_actual: np.ndarray, y_predicted: np.ndarray, data_type: str = "Validation"):
+        print(f"\n{'=' * 85}")
+        print(f"{data_type.upper()} SET - Predicted vs Actual Values (First 20 Samples)")
+        print(f"{'=' * 85}")
+        print(f"{'Index':<8} {'Actual':<15} {'Predicted':<15} {'Error':<15} {'% Error':<15}")
+        print("-" * 85)
+
+        num_samples = min(20, len(y_actual))
+        for i in range(num_samples):
+            actual = y_actual[i]
+            pred = y_predicted[i]
+            error = pred - actual
+            pct_error = (error / actual * 100) if actual != 0 else 0.0
+            print(f"{i:<8} {actual:<15.4f} {pred:<15.4f} {error:<15.4f} {pct_error:<15.2f}%")
+
+        if len(y_actual) > 20:
+            print(f"... and {len(y_actual) - 20} more samples")
+
+        mae = np.mean(np.abs(y_actual - y_predicted))
+        rmse = np.sqrt(np.mean((y_actual - y_predicted) ** 2))
+        print("-" * 85)
+        print(f"{'SUMMARY':<8} MAE: {mae:.4f} | RMSE: {rmse:.4f}")
+        print("=" * 85)
+
+    def plot_rmse_curve(self, best_epoch: int = None):
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.train_history["train_rmse"], label="Training RMSE", linewidth=2.5, color="#1f77b4")
+        plt.plot(self.train_history["val_rmse"], label="Validation RMSE", linewidth=2.5, color="#ff7f0e")
+        if best_epoch:
+            plt.axvline(best_epoch - 1, color="red", linestyle="--", label=f"Best (ep {best_epoch})")
+        plt.xlabel("Epoch", fontsize=12)
+        plt.ylabel("RMSE", fontsize=12)
+        plt.title("Book Sales Regressor — RMSE Curve", fontsize=14)
+        plt.legend(fontsize=11)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
+    def plot_actual_vs_predicted(self, X_test: torch.Tensor, y_test: torch.Tensor, preprocessor):
+        """Updated to use preprocessor directly - FIXED."""
+        import matplotlib.pyplot as plt
+
+        preds_scaled = self.predict(X_test)
+        actual_scaled = y_test.cpu().numpy().flatten()
+
+        # Use proper inverse transform
+        pred_qty = preprocessor.inverse_transform_target(preds_scaled)
+        actual_qty = preprocessor.inverse_transform_target(actual_scaled)
+
+        # Plot original scale only (simpler, more relevant)
+        coeffs = np.polyfit(pred_qty, actual_qty, 1)
+        fit_line = np.poly1d(coeffs)
+        x_range = np.linspace(pred_qty.min(), pred_qty.max(), 100)
+
+        plt.figure(figsize=(12, 8))
+        plt.scatter(pred_qty, actual_qty, alpha=0.6, s=30, c='#1f77b4', label='Test samples')
+        plt.plot(x_range, fit_line(x_range), 'r--', linewidth=3,
+                 label=f'Best fit (y={coeffs[0]:.2f}x+{coeffs[1]:.2f})')
+        plt.plot(x_range, x_range, 'g-', linewidth=2, alpha=0.8, label='Perfect prediction')
+        plt.xlabel('Predicted Quantity', fontsize=14)
+        plt.ylabel('Actual Quantity', fontsize=14)
+        plt.title('Test Set: Actual vs Predicted Quantity (Original Scale)', fontsize=16)
+        plt.legend(fontsize=12)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
 
 
 def main():
@@ -313,13 +508,13 @@ def main():
     y_train_t = torch.from_numpy(y_train_scaled.astype(np.float32)).to(device)
     y_val_t = torch.from_numpy(y_val_scaled.astype(np.float32)).to(device)
 
-    # 🔥 FEATURE SELECTION - YOUR LOGIC INTEGRATED
+    # FEATURE SELECTION - YOUR LOGIC INTEGRATED
     print("\n" + "=" * 60)
     best_features, drop_cols = preprocessor.greedy_forward_selection(
         df_train, df_val, y_train_t, y_val_t, device
     )
     feature_cols = preprocessor.get_final_features()
-    print(f"\n✅ Final features: {len(feature_cols)} total ({len(best_features)} selected + dummies)")
+    print(f"\nFinal features: {len(feature_cols)} total ({len(best_features)} selected + dummies)")
 
     # Prepare final tensors
     X_train = torch.from_numpy(df_train[feature_cols].to_numpy(np.float32)).to(device)
@@ -336,10 +531,10 @@ def main():
     # Save & evaluate
     torch.save(trainer.best_state, results_folder / "regressor_best_selected.pth")
     test_rmse = trainer.evaluate(X_test, y_test_t)
-    print(f"\n🏆 Best Val RMSE: {best_val_rmse:.4f} | Test RMSE: {test_rmse:.4f}")
+    print(f"\nBest Val RMSE: {best_val_rmse:.4f} | Test RMSE: {test_rmse:.4f}")
 
     # Final predictions
-    print("\n🔮 GENERATING PRODUCTION PREDICTIONS")
+    print("\nGENERATING PRODUCTION PREDICTIONS")
     df_target = pd.read_csv(target_path, dtype={"isbn": "string"})
     final_ids = df_target[["isbn", "title"]].copy()
 
@@ -354,7 +549,7 @@ def main():
 
     final_ids["pred_quantity"] = pred_qty
     final_ids.to_csv(results_folder / "final_predictions_selected.csv", index=False)
-    print(f"\n✅ Predictions saved: {results_folder / 'final_predictions_selected.csv'}")
+    print(f"Predictions saved: {results_folder / 'final_predictions_selected.csv'}")
     print(final_ids.head(10))
 
     # Diagnostics
