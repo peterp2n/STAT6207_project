@@ -19,7 +19,7 @@ class TrainingConfig:
     """Configuration for model training."""
     # Model hyperparameters
     dropout: float = 0
-    learning_rate: float = 0.001
+    learning_rate: float = 0.0001
     weight_decay: float = 0
     batch_size: int = 128
     epochs: int = 150
@@ -64,9 +64,6 @@ class TrainingConfig:
     features_to_use: List[str] = field(default_factory=lambda: [
         "q_since_first",
         "avg_discount_rate",
-        "price",
-        "print_length",
-        "item_weight",
         "rating",
     ])
 
