@@ -450,7 +450,7 @@ def main():
 
     q_since_first_mapping = {
         "9781338896459": [5, 6, 7, 8], # dog_man, hardcover, 9781338236576
-        "9781338896398": [9, 10, 11, 12], # cat_kid, hardcover, 9781338784855
+        "9781338896398": [9, 10, 11, 12], # cat_kid, hardcover, 9789813387386
         "9781529097153": [9, 10, 11, 12], # andy_griffiths, paperback, 9781529088601
         "9781338347258": [15, 16, 17, 18], # captain_underpants, hardcover, 9781338271508
         "9789810950286": [41, 42, 43, 44], # captain_underpants, paperback, 9789810731540
@@ -460,7 +460,7 @@ def main():
     }
     q_series_mapping = {
         "9781338896459": "9781338236576",
-        "9781338896398": "9781338784855",
+        "9781338896398": "9789813387386",
         "9781529097153": "9781529088601",
         "9781338347258": "9781338271508",
         "9789810950286": "9789810731540",
@@ -472,32 +472,41 @@ def main():
 
     quarters = ["q1", "q2", "q3", "q4"]
     ######################## dog_man ########################
-    # "9781338896459": [5, 6, 7, 8], # dog_man, hardcover, 9781338236576
+    # "9781338896459": Q5-8, # dog_man, hardcover, 9781338236576: Q5-8
     plt.figure(figsize=(8, 5))
 
     dog_man_target = concat.loc[concat["isbn"] == "9781338896459", "quantity"]
     dog_man_backtest = concat.loc[concat["isbn"] == "9781338236576", "quantity"]
     plt.plot(quarters, dog_man_target.tolist(), marker='o', label="9781338896459 (target)")
     plt.plot(quarters, dog_man_backtest.tolist(), marker='s', label="9781338236576 (backtest)")
-    plt.title("Dog Man on Market for 5-8 quarters since first sale")
+    plt.title("Dog Man on Market for over a year since marketed")
+    plt.ylabel("Quantity")
+    plt.xlabel("Time since marketed")
     plt.legend()
     plt.show()
     ######################## cat_kid ########################
-    # "9781338896398": [9, 10, 11, 12], # cat_kid, hardcover, 9781338784855
+    # "9781338896398": [9, 10, 11, 12], # cat_kid, hardcover,
     plt.figure(figsize=(8, 5))
     cat_kid_target = concat.loc[concat["isbn"] == "9781338896398", "quantity"]
-    cat_kid_backtest = concat.loc[concat["isbn"] == "9781529097153", "quantity"]
+    cat_kid_backtest = concat.loc[concat["isbn"] == "9789813387386", "quantity"]
     plt.plot(quarters, cat_kid_target.tolist(), marker='o', label="9781338896398 (target) (Q9-12)")
-    plt.plot(quarters, cat_kid_backtest.tolist(), marker='s', label="9781529097153 (backtest) (Q)")
-    plt.title("Cat Kid on Market for 9-12 quarters since first sale")
+    plt.plot(quarters, cat_kid_backtest.tolist(), marker='s', label="9789813387386 (backtest) (Q)")
+    plt.title("Cat Kid on Market for over a year since marketed")
+    plt.ylabel("Quantity")
+    plt.xlabel("Time since marketed")
     plt.legend()
     plt.show()
 
     ######################## andy_griffiths ########################
     # "9781529097153": [9, 10, 11, 12], # andy_griffiths, paperback, 9781529088601
     plt.figure(figsize=(8, 5))
-
-    plt.title("Andy Griffiths on Market for 9-12 quarters since first sale")
+    andy_griffiths_target = concat.loc[concat["isbn"] == "9781529097153", "quantity"]
+    andy_griffiths_backtest = concat.loc[concat["isbn"] == "9781529088601", "quantity"]
+    plt.plot(quarters, andy_griffiths_target.tolist(), marker='o', label="9781529097153 (target) (Q9-12)")
+    plt.plot(quarters, andy_griffiths_backtest.tolist(), marker='s', label="9781529088601 (backtest) (Q)")
+    plt.title("Andy Griffiths on Market for over 2 years since marketed")
+    plt.ylabel("Quantity")
+    plt.xlabel("Time since marketed")
     plt.legend()
     plt.show()
 
@@ -509,11 +518,26 @@ def main():
     plt.plot(quarters, captain_underpants_target1.tolist(), marker='o', label="9781338347258 (target)")
     plt.plot(quarters, captain_underpants_backtest1.tolist(), marker='s', label="9781338271508 (backtest)")
     plt.title("Captain Underpants on Market for 15-18 quarters since first sale")
+    plt.ylabel("Quantity")
+    plt.xlabel("Time since marketed")
     plt.legend()
     plt.show()
 
     ######################## captain_underpants2 ########################
-    # "9789810950286": [41, 42, 43, 44],  # captain_underpants, paperback, 9789810731540
+    # "9789810950286": [41, 42, 43, 44],  # captain_underpants, paperback, 9789810731540 Q28-31
+    plt.figure(figsize=(8, 5))
+    captain_underpants_target2 = concat.loc[
+        (concat["isbn"] == "9781338347258") & ((concat["q_since_first"].isin(range(28, 32))).bool())
+        , "quantity"
+    ]
+    captain_underpants_backtest2 = concat.loc[concat["isbn"] == "9789810731540", "quantity"]
+    plt.plot(quarters, captain_underpants_backtest2.tolist(), marker='s', label="9789810731540 (backtest)")
+    plt.title("Captain Underpants on Market for almost 4 years since first sale")
+    plt.ylabel("Quantity")
+    plt.xlabel("Time since marketed")
+    plt.legend()
+    plt.show()
+
 
     ######################## captain_underpants3 ########################
     # "9789814918015": [12, 13, 14, 15],  # captain_underpants, paperback, 9789810731540
