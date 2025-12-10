@@ -2,7 +2,6 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 import copy
-
 import pandas as pd
 import numpy as np
 import torch
@@ -10,8 +9,9 @@ import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
-
 from regressor_mini import RegressorMini
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 
 @dataclass
@@ -20,7 +20,7 @@ class TrainingConfig:
     # Model hyperparameters
     dropout: float = 0.3
     learning_rate: float = 5e-5
-    weight_decay: float = 1e-3
+    weight_decay: float = 1e-4
     batch_size: int = 128
     epochs: int = 250
     patience: int = 50
@@ -312,9 +312,9 @@ def set_random_seeds(seed: int):
         torch.cuda.manual_seed_all(seed)
 
 def load_and_split_data(data_path: Path, config: TrainingConfig):
-    df_full = pd.read_csv(data_path, dtype={"isbn": "string"})
+    df_full = pd.read_csv(data_path, dtype={"isbn": "string", "q_since_first": "string"})
     df_train, df_temp = train_test_split(df_full, test_size=0.2, random_state=config.seed, shuffle=True)
-    df_val, df_test = train_test_split(df_temp, test_size=0.5, random_state=config.seed + 1, shuffle=True)
+    df_val, df_test = train_test_split(df_temp, test_size=0.5, random_state=config.seed, shuffle=True)
     print(f"Train: {len(df_train)} | Val: {len(df_val)} | Test: {len(df_test)}")
     return df_train, df_val, df_test
 
@@ -374,19 +374,64 @@ def main():
     trainer.plot_actual_vs_predicted(X_test, y_test, preprocessor)
 
     # Final predictions
-    df_target = pd.read_csv(target_books_path, dtype={"isbn": "string"})
+    df_target = pd.read_csv(target_books_path, dtype={"isbn": "string", "q_since_first": "string"})
     ids = df_target[["isbn", "title"]].copy()
     df_target = preprocessor.impute_missing_values(df_target)
     df_target = preprocessor.transform_features(df_target)
-    df_target = preprocessor.safe_transform_dummies(df_target)
-    df_target = df_target.reindex(columns=feature_cols, fill_value=0.0)
-    X_target = torch.from_numpy(df_target[feature_cols].to_numpy(np.float32))
+    df_target_dummy = preprocessor.safe_transform_dummies(df_target)
+    df_target_dummy = df_target_dummy.reindex(columns=feature_cols, fill_value=0.0)
+    X_target = torch.from_numpy(df_target_dummy[feature_cols].to_numpy(np.float32))
 
     preds = np.clip(preprocessor.inverse_transform_target(trainer.predict(X_target)), 0, None).round().astype(int)
     ids["pred_quantity"] = preds
     print(ids.head(8))
     # ids.to_csv(results_folder / "final_predictions.csv", index=False)
     print("Final predictions saved!")
+
+
+    # Add the predicted quantity to the target_df
+    df_target["quantity"] = preds
+    #
+
+    backtest = pd.read_csv("data/backtest_v2.csv", dtype={"isbn": "string", "q_since_first": "string"})
+    concat = pd.concat([df_target, backtest])
+
+
+
+    q_since_first_mapping = {
+        "9781338896459": [5, 6, 7, 8], # dog_man
+        "9781338896398": [9, 10, 11, 12], # cat_kid
+        "9781529097153": [9, 10, 11, 12], # andy_griffiths
+        "9781338347258": [15, 16, 17, 18], # captain_underpants
+        "9789810950286": [41, 42, 43, 44], # captain_underpants
+        "9789814918015": [12, 13, 14, 15], # captain_underpants
+        "9781913484521": [5, 6, 7, 8], # guinness
+        "9781913484552": [5, 6, 7, 8] # guinness
+    }
+    q_series_mapping = {
+        "9781338896459": "dog_man",
+        "9781338896398": "cat_kid",
+        "9781529097153": "andy_griffiths",
+        "9781338347258": "captain_underpants",
+        "9789810950286": "captain_underpants",
+        "9789814918015": "captain_underpants",
+        "9781913484521": "guinness",
+        "9781913484552": "guinness"
+    }
+
+
+    #### Plotting ####
+    dog_man = concat[concat["series"] == "dog_man"]
+    groupby_dogman = dog_man.groupby(["isbn", "series", "format", "q_since_first"])["quantity"].sum()
+
+    groupby = concat.groupby()
+
+    for series_name in ["dog_man", "cat_kid", "andy_griffiths", "guinness", "captain_underpants"]:
+        temp = concat[concat["series"]]
+        series_data = groupby.loc[groupby["series"] == series_name]
+        sns.lineplot(data=groupby, x=["Q1", "Q2", "Q3", "Q4"], y="quantity", hue="isbn", label="isbn")
+
+    pass
 
 
 if __name__ == "__main__":
