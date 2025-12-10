@@ -472,6 +472,7 @@ def main():
 
     quarters = ["q1", "q2", "q3", "q4"]
     ######################## dog_man ########################
+    # "9781338896459": [5, 6, 7, 8], # dog_man, hardcover, 9781338236576
     plt.figure(figsize=(8, 5))
 
     dog_man_target = concat.loc[concat["isbn"] == "9781338896459", "quantity"]
@@ -482,17 +483,26 @@ def main():
     plt.legend()
     plt.show()
     ######################## cat_kid ########################
+    # "9781338896398": [9, 10, 11, 12], # cat_kid, hardcover, 9781338784855
     plt.figure(figsize=(8, 5))
     cat_kid_target = concat.loc[concat["isbn"] == "9781338896398", "quantity"]
     cat_kid_backtest = concat.loc[concat["isbn"] == "9781529097153", "quantity"]
-    plt.plot(quarters, cat_kid_target.tolist(), marker='o', label="9781338896398 (target)")
-    plt.plot(quarters, cat_kid_backtest.tolist(), marker='s', label="9781529097153 (backtest)")
+    plt.plot(quarters, cat_kid_target.tolist(), marker='o', label="9781338896398 (target) (Q9-12)")
+    plt.plot(quarters, cat_kid_backtest.tolist(), marker='s', label="9781529097153 (backtest) (Q)")
     plt.title("Cat Kid on Market for 9-12 quarters since first sale")
     plt.legend()
     plt.show()
 
+    ######################## andy_griffiths ########################
+    # "9781529097153": [9, 10, 11, 12], # andy_griffiths, paperback, 9781529088601
+    plt.figure(figsize=(8, 5))
 
-    ######################## captain_underpants ########################
+    plt.title("Andy Griffiths on Market for 9-12 quarters since first sale")
+    plt.legend()
+    plt.show()
+
+    ######################## captain_underpants1 ########################
+    # "9781338347258": [15, 16, 17, 18],  # captain_underpants, hardcover, 9781338271508
     plt.figure(figsize=(8, 5))
     captain_underpants_target1 = concat.loc[concat["isbn"] == "9781338347258", "quantity"]
     captain_underpants_backtest1 = concat.loc[concat["isbn"] == "9781338271508", "quantity"]
@@ -502,9 +512,17 @@ def main():
     plt.legend()
     plt.show()
 
+    ######################## captain_underpants2 ########################
+    # "9789810950286": [41, 42, 43, 44],  # captain_underpants, paperback, 9789810731540
 
+    ######################## captain_underpants3 ########################
+    # "9789814918015": [12, 13, 14, 15],  # captain_underpants, paperback, 9789810731540
 
+    ######################## guinness1 ########################
+    # "9781913484521": [5, 6, 7, 8],  # guinness, paperback, 9781913484385
 
+    ######################## guinness2 ########################
+    # "9781913484552": [5, 6, 7, 8]  # guinness, hardcover, 9781913484385
 
     plt.xlabel("Quarter")
     plt.ylabel("Value")
