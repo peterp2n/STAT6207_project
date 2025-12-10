@@ -18,11 +18,12 @@ from regressor_mini import Regressor
 class TrainingConfig:
     """Configuration for model training."""
     # Model hyperparameters
-    dropout: float = 0
-    learning_rate: float = 0.0001
-    weight_decay: float = 0
+    dropout: float = 0.4
+    learning_rate: float = 3e-4
+    weight_decay: float = 5e-4
     batch_size: int = 128
-    epochs: int = 150
+    epochs: int = 250
+    patience: int = 50
 
     # Data preprocessing
     clip_min: float = -7.0
