@@ -44,11 +44,11 @@ if __name__ == "__main__":
     # # we should capture the RAW state first if we want a true "Pre-Imputation" check.
     #
     # # Capture RAW data (for "Before" Heatmap) BEFORE overwriting
-    # continuous_cols = [
-    #     "q_since_first", "avg_discount_rate", "print_length", "item_weight",
-    #     "length", "width", "height", "rating", "price", "quantity"
-    # ]
-    # raw_sales_features_pdf = sales_features.select(continuous_cols).to_pandas()
+    continuous_cols = [
+        "q_since_first", "avg_discount_rate", "print_length", "item_weight",
+        "length", "width", "height", "rating", "price", "quantity"
+    ]
+    raw_sales_features_pdf = sales_features.select(continuous_cols).to_pandas()
     #
     # # Proceed with Imputation
     # sales_features = (
