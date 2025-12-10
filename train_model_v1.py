@@ -313,6 +313,7 @@ def set_random_seeds(seed: int):
 
 def load_and_split_data(data_path: Path, config: TrainingConfig):
     df_full = pd.read_csv(data_path, dtype={"isbn": "string", "q_since_first": "string"})
+    df_full["isbn"] = df_full["isbn"].astype("string")
     df_train, df_temp = train_test_split(df_full, test_size=0.2, random_state=config.seed, shuffle=True)
     df_val, df_test = train_test_split(df_temp, test_size=0.5, random_state=config.seed, shuffle=True)
     print(f"Train: {len(df_train)} | Val: {len(df_val)} | Test: {len(df_test)}")
@@ -323,6 +324,50 @@ def prepare_tensors(df, cols, y_vals, device):
     y = torch.from_numpy(y_vals.astype(np.float32))
     return X, y
 
+
+# === LOAD TRAINED MODEL FOR INFERENCE ===
+def load_trained_model(
+        model_path: Path,
+        input_dim: int,
+        dropout: float = 0.3,
+        device: torch.device = None
+) -> RegressorMini:
+    """
+    Load the trained RegressorMini model from a saved state_dict.
+
+    Parameters
+    ----------
+    model_path : Path
+        Path to the saved .pth file (e.g., "results/regressor_best.pth")
+    input_dim : int
+        Number of input features (must match the one used during training)
+    dropout : float
+        Dropout rate used during training (must match exactly)
+    device : torch.device, optional
+        Device to load the model on (defaults to CPU, then CUDA/MPS if available)
+
+    Returns
+    -------
+    model : RegressorMini
+        Model with loaded best weights, ready for evaluation or prediction
+    """
+    if device is None:
+        device = setup_device()
+
+    # 1. Re-instantiate the model with the exact same architecture
+    model = RegressorMini(input_dim=input_dim, dropout=dropout).to(device)
+
+    # 2. Load the saved state dict
+    state_dict = torch.load(model_path, map_location=device)
+    model.load_state_dict(state_dict)
+
+    # 3. Set to evaluation mode
+    model.eval()
+
+    print(f"Successfully loaded model weights from: {model_path}")
+    print(f"   → Input dimension: {input_dim} | Dropout: {dropout} | Device: {device}")
+
+    return model
 
 # === Main pipeline ===
 def main():
@@ -393,43 +438,80 @@ def main():
     df_target["quantity"] = preds
     #
 
-    backtest = pd.read_csv("data/backtest_v2.csv", dtype={"isbn": "string", "q_since_first": "string"})
+    backtest = pd.read_csv("data/backtest_v2.csv",
+                           dtype={
+                               "isbn": "string",
+                               "q_since_first": "string",
+                           })
+    backtest["isbn"] = backtest["isbn"].astype("string")
     concat = pd.concat([df_target, backtest])
 
 
 
     q_since_first_mapping = {
-        "9781338896459": [5, 6, 7, 8], # dog_man
-        "9781338896398": [9, 10, 11, 12], # cat_kid
-        "9781529097153": [9, 10, 11, 12], # andy_griffiths
-        "9781338347258": [15, 16, 17, 18], # captain_underpants
-        "9789810950286": [41, 42, 43, 44], # captain_underpants
-        "9789814918015": [12, 13, 14, 15], # captain_underpants
-        "9781913484521": [5, 6, 7, 8], # guinness
-        "9781913484552": [5, 6, 7, 8] # guinness
+        "9781338896459": [5, 6, 7, 8], # dog_man, hardcover, 9781338236576
+        "9781338896398": [9, 10, 11, 12], # cat_kid, hardcover, 9781338784855
+        "9781529097153": [9, 10, 11, 12], # andy_griffiths, paperback, 9781529088601
+        "9781338347258": [15, 16, 17, 18], # captain_underpants, hardcover, 9781338271508
+        "9789810950286": [41, 42, 43, 44], # captain_underpants, paperback, 9789810731540
+        "9789814918015": [12, 13, 14, 15], # captain_underpants, paperback, 9789810731540
+        "9781913484521": [5, 6, 7, 8], # guinness, paperback, 9781913484385
+        "9781913484552": [5, 6, 7, 8] # guinness, hardcover, 9781913484385
     }
     q_series_mapping = {
-        "9781338896459": "dog_man",
-        "9781338896398": "cat_kid",
-        "9781529097153": "andy_griffiths",
-        "9781338347258": "captain_underpants",
-        "9789810950286": "captain_underpants",
-        "9789814918015": "captain_underpants",
-        "9781913484521": "guinness",
-        "9781913484552": "guinness"
+        "9781338896459": "9781338236576",
+        "9781338896398": "9781338784855",
+        "9781529097153": "9781529088601",
+        "9781338347258": "9781338271508",
+        "9789810950286": "9789810731540",
+        "9789814918015": "9789810731540",
+        "9781913484521": "9781913484385",
+        "9781913484552": "9781913484385"
     }
 
 
-    #### Plotting ####
-    dog_man = concat[concat["series"] == "dog_man"]
-    groupby_dogman = dog_man.groupby(["isbn", "series", "format", "q_since_first"])["quantity"].sum()
+    quarters = ["q1", "q2", "q3", "q4"]
+    ######################## dog_man ########################
+    plt.figure(figsize=(8, 5))
 
-    groupby = concat.groupby()
+    dog_man_target = concat.loc[concat["isbn"] == "9781338896459", "quantity"]
+    dog_man_backtest = concat.loc[concat["isbn"] == "9781338236576", "quantity"]
+    plt.plot(quarters, dog_man_target.tolist(), marker='o', label="9781338896459 (target)")
+    plt.plot(quarters, dog_man_backtest.tolist(), marker='s', label="9781338236576 (backtest)")
+    plt.title("Dog Man on Market for 5-8 quarters since first sale")
+    plt.legend()
+    plt.show()
+    ######################## cat_kid ########################
+    plt.figure(figsize=(8, 5))
+    cat_kid_target = concat.loc[concat["isbn"] == "9781338896398", "quantity"]
+    cat_kid_backtest = concat.loc[concat["isbn"] == "9781529097153", "quantity"]
+    plt.plot(quarters, cat_kid_target.tolist(), marker='o', label="9781338896398 (target)")
+    plt.plot(quarters, cat_kid_backtest.tolist(), marker='s', label="9781529097153 (backtest)")
+    plt.title("Cat Kid on Market for 9-12 quarters since first sale")
+    plt.legend()
+    plt.show()
 
-    for series_name in ["dog_man", "cat_kid", "andy_griffiths", "guinness", "captain_underpants"]:
-        temp = concat[concat["series"]]
-        series_data = groupby.loc[groupby["series"] == series_name]
-        sns.lineplot(data=groupby, x=["Q1", "Q2", "Q3", "Q4"], y="quantity", hue="isbn", label="isbn")
+
+    ######################## captain_underpants ########################
+    plt.figure(figsize=(8, 5))
+    captain_underpants_target1 = concat.loc[concat["isbn"] == "9781338347258", "quantity"]
+    captain_underpants_backtest1 = concat.loc[concat["isbn"] == "9781338271508", "quantity"]
+    plt.plot(quarters, captain_underpants_target1.tolist(), marker='o', label="9781338347258 (target)")
+    plt.plot(quarters, captain_underpants_backtest1.tolist(), marker='s', label="9781338271508 (backtest)")
+    plt.title("Captain Underpants on Market for 15-18 quarters since first sale")
+    plt.legend()
+    plt.show()
+
+
+
+
+
+    plt.xlabel("Quarter")
+    plt.ylabel("Value")
+    plt.title("Target vs Backtest")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.show()
 
     pass
 
