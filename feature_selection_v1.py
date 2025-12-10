@@ -14,7 +14,7 @@ from sklearn.preprocessing import RobustScaler
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from regressor_mini import Regressor
+from regressor_mini import RegressorMini
 
 
 @dataclass
@@ -215,7 +215,7 @@ class DataPreprocessor:
     def _evaluate_feature_set(self, X_train: torch.Tensor, y_train: torch.Tensor,
                               X_val: torch.Tensor, y_val: torch.Tensor, device: torch.device) -> float:
         """Fast model evaluation for feature selection (30 epochs)."""
-        model = Regressor(input_dim=X_train.shape[1], dropout=self.config.dropout).to(device)
+        model = RegressorMini(input_dim=X_train.shape[1], dropout=self.config.dropout).to(device)
         opt = torch.optim.Adam(model.parameters(), lr=0.001)
         loss_fn = nn.MSELoss()
 
@@ -256,7 +256,7 @@ class ModelTrainer:
     def __init__(self, config: TrainingConfig, device: torch.device):
         self.config = config
         self.device = device
-        self.model: Regressor = None
+        self.model: RegressorMini = None
         self.best_state: dict = None
         self.train_history: Dict[str, List[float]] = {"train_rmse": [], "val_rmse": []}
 
@@ -314,7 +314,7 @@ class ModelTrainer:
             y_val: torch.Tensor
     ) -> Tuple[float, int]:
         """Train model and track best performance."""
-        self.model = Regressor(input_dim=X_train.shape[1], dropout=self.config.dropout).to(self.device)
+        self.model = RegressorMini(input_dim=X_train.shape[1], dropout=self.config.dropout).to(self.device)
         optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=self.config.learning_rate,
@@ -424,7 +424,7 @@ class ModelTrainer:
             plt.axvline(best_epoch - 1, color="red", linestyle="--", label=f"Best (ep {best_epoch})")
         plt.xlabel("Epoch", fontsize=12)
         plt.ylabel("RMSE", fontsize=12)
-        plt.title("Book Sales Regressor — RMSE Curve", fontsize=14)
+        plt.title("Book Sales RegressorMini — RMSE Curve", fontsize=14)
         plt.legend(fontsize=11)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()

@@ -11,16 +11,16 @@ from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
 
-from regressor_mini import Regressor
+from regressor_mini import RegressorMini
 
 
 @dataclass
 class TrainingConfig:
     """Configuration for model training."""
     # Model hyperparameters
-    dropout: float = 0.4
-    learning_rate: float = 3e-4
-    weight_decay: float = 5e-4
+    dropout: float = 0.3
+    learning_rate: float = 5e-5
+    weight_decay: float = 1e-3
     batch_size: int = 128
     epochs: int = 250
     patience: int = 50
@@ -57,7 +57,7 @@ class TrainingConfig:
     ])
 
     drop_cols: List[str] = field(default_factory=lambda: [
-        "number_of_reviews", "price", "height", "length", "width"
+        "number_of_reviews", 'price', 'height', 'length', 'width', 'item_weight', 'print_length', 'rating'
     ])
 
     target_col: str = "quantity"
@@ -168,7 +168,7 @@ class ModelTrainer:
     def __init__(self, config: TrainingConfig, device: torch.device):
         self.config = config
         self.device = device
-        self.model: Regressor = None
+        self.model: RegressorMini = None
         self.best_state: dict = None
         self.train_history: Dict[str, List[float]] = {"train_rmse": [], "val_rmse": []}
 
@@ -199,7 +199,7 @@ class ModelTrainer:
         return np.sqrt(total_loss / num_samples)
 
     def train(self, X_train, y_train, X_val, y_val) -> Tuple[float, int]:
-        self.model = Regressor(input_dim=X_train.shape[1], dropout=self.config.dropout).to(self.device)
+        self.model = RegressorMini(input_dim=X_train.shape[1], dropout=self.config.dropout).to(self.device)
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.learning_rate,
                                      weight_decay=self.config.weight_decay)
         criterion = nn.MSELoss()
@@ -267,7 +267,7 @@ class ModelTrainer:
             plt.axvline(best_epoch - 1, color="red", linestyle="--", label=f"Best (ep {best_epoch})")
         plt.xlabel("Epoch")
         plt.ylabel("RMSE")
-        plt.title("Book Sales Regressor — RMSE Curve")
+        plt.title("Book Sales RegressorMini — RMSE Curve")
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
@@ -384,7 +384,8 @@ def main():
 
     preds = np.clip(preprocessor.inverse_transform_target(trainer.predict(X_target)), 0, None).round().astype(int)
     ids["pred_quantity"] = preds
-    ids.to_csv(results_folder / "final_predictions.csv", index=False)
+    print(ids.head(8))
+    # ids.to_csv(results_folder / "final_predictions.csv", index=False)
     print("Final predictions saved!")
 
 
