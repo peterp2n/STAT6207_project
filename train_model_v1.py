@@ -18,11 +18,11 @@ import matplotlib.pyplot as plt
 class TrainingConfig:
     """Configuration for model training."""
     # Model hyperparameters
-    dropout: float = 0.3
+    dropout: float = 0.2
     learning_rate: float = 5e-4
-    weight_decay: float = 1e-4
+    weight_decay: float = 2e-4
     batch_size: int = 256
-    epochs: int = 250
+    epochs: int = 300
     patience: int = 50
 
     # Data preprocessing
@@ -64,7 +64,7 @@ class TrainingConfig:
         'width',
         'item_weight',
         'print_length',
-        # 'rating'
+        'rating'
     ])
 
     target_col: str = "quantity"
@@ -389,7 +389,7 @@ def main():
     df = pd.read_csv(data_path, dtype={"isbn": "string", "q_since_first": "string"})
     df["isbn"] = df["isbn"].astype("string")
     # Retail and wholesale constitute of a majority of the data
-    df = df[df["channel"].isin(["retail", "wholesale"])]
+    # df = df[df["channel"].isin(["retail", "wholesale"])]
     df_train, df_val, df_test = load_and_split_data(df, config)
 
     preprocessor = DataPreprocessor(config)
@@ -563,8 +563,8 @@ def main():
     plt.figure(figsize=(8, 5))
     guinness_target1 = concat.loc[concat["isbn"] == "9781913484521", "quantity"]
     guinness_backtest1 = concat.loc[concat["isbn"] == "9781913484385", "quantity"]
-    plt.plot(quarters, guinness_target1.tolist(), marker='o', label="9781913484521 (target) (Q9-12)")
-    plt.plot(quarters, guinness_backtest1.tolist(), marker='s', label="9781913484385 (backtest) (Q)")
+    plt.plot(quarters, guinness_target1.tolist(), marker='o', label="9781913484521 (target)")
+    plt.plot(quarters, guinness_backtest1.tolist(), marker='s', label="9781913484385 (backtest)")
     plt.title("Guiness on Market for over 4 years since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")

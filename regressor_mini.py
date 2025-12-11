@@ -7,15 +7,15 @@ class RegressorMini(nn.Module):
 
         # Simplified network architecture
         self.net = nn.Sequential(
-            nn.Linear(input_dim, 48),
+            nn.Linear(input_dim, 128),
             nn.ReLU(),
             nn.Dropout(dropout),
 
-            nn.Linear(48, 16),
+            nn.Linear(128, 96),
             nn.ReLU(),
             nn.Dropout(0.1),
 
-            nn.Linear(16, 1),
+            nn.Linear(96, 1),
         )
 
     def forward(self, x):
