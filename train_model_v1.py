@@ -172,9 +172,10 @@ class DataPreprocessor:
 
 
 class ModelTrainer:
-    def __init__(self, config: TrainingConfig, device: torch.device):
+    def __init__(self, config: TrainingConfig, device: torch.device, preprocessor: DataPreprocessor = None):
         self.config = config
         self.device = device
+        self.preprocessor = preprocessor  # Store the preprocessor reference
         self.model: RegressorMini = None
         self.best_state: dict = None
         self.train_history: Dict[str, List[float]] = {"train_rmse": [], "val_rmse": []}
@@ -280,6 +281,34 @@ class ModelTrainer:
         plt.tight_layout()
         plt.show()
 
+    def plot_scaled_vs_predicted(self, X_test, y_test):
+        """
+        Plot predicted vs actual target values in the transformed (scaled log) space.
+        Includes a linear fit line and the perfect prediction line (y=x).
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        preds_scaled = self.predict(X_test)
+        actual_scaled = y_test.cpu().numpy().flatten()
+
+        # Linear fit in scaled space
+        coeffs = np.polyfit(preds_scaled, actual_scaled, 1)
+        x_range = np.linspace(preds_scaled.min(), preds_scaled.max(), 100)
+
+        plt.figure(figsize=(12, 8))
+        plt.scatter(preds_scaled, actual_scaled, alpha=0.6, s=30, c='#1f77b4', label='Test samples')
+        plt.plot(x_range, np.poly1d(coeffs)(x_range), 'r--', linewidth=3,
+                 label=f'Fit: y={coeffs[0]:.3f}x + {coeffs[1]:.3f}')
+        plt.plot(x_range, x_range, 'g-', alpha=0.8, label='Perfect (y=x)')
+        plt.xlabel('Predicted (Transformed Scale)')
+        plt.ylabel('Actual (Transformed Scale)')
+        plt.title('Test Set: Actual vs Predicted (Transformed Scaled Log Space)')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
     def plot_actual_vs_predicted(self, X_test, y_test, preprocessor):
         import matplotlib.pyplot as plt
         preds_scaled = self.predict(X_test)
@@ -303,6 +332,41 @@ class ModelTrainer:
         plt.tight_layout()
         plt.show()
 
+    def plot_target_qq(self, y_original: np.ndarray):
+        """
+        Generate separate Q-Q plots for the target variable before and after transformation.
+
+        Parameters
+        ----------
+        y_original : np.ndarray
+            Array of original (untransformed) quantity values from the training set.
+        """
+        import matplotlib.pyplot as plt
+        import scipy.stats as stats
+
+        # Recreate the transformed version exactly as done during training
+        y_log = np.log1p(y_original)
+        y_scaled = self.preprocessor.y_scaler.transform(y_log.reshape(-1, 1)).flatten()
+
+        # Q-Q Plot: Before transformation (original scale)
+        plt.figure(figsize=(8, 6))
+        stats.probplot(y_original, dist="norm", plot=plt)
+        plt.title("Q-Q Plot: Original Quantity (Before Transformation)")
+        plt.xlabel("Theoretical Quantiles (Standard Normal)")
+        plt.ylabel("Ordered Quantity Values")
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
+        # Q-Q Plot: After transformation (scaled log space)
+        plt.figure(figsize=(8, 6))
+        stats.probplot(y_scaled, dist="norm", plot=plt)
+        plt.title("Q-Q Plot: Transformed Target (After log1p + RobustScaler)")
+        plt.xlabel("Theoretical Quantiles (Standard Normal)")
+        plt.ylabel("Ordered Transformed Values")
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
 
 # === Utility functions ===
 def setup_device() -> torch.device:
@@ -397,6 +461,8 @@ def main():
     df_val = preprocessor.impute_missing_values(df_val)
     df_test = preprocessor.impute_missing_values(df_test)
 
+    y_train_original = df_train[config.target_col].to_numpy().copy()
+
     df_train = preprocessor.fit_transform_features(df_train)
     df_val = preprocessor.transform_features(df_val)
     df_test = preprocessor.transform_features(df_test)
@@ -414,7 +480,7 @@ def main():
     X_val, y_val = prepare_tensors(df_val_sel, feature_cols, y_val_scaled, device)
     X_test, y_test = prepare_tensors(df_test_sel, feature_cols, y_test_scaled, device)
 
-    trainer = ModelTrainer(config, device)
+    trainer = ModelTrainer(config, device, preprocessor)
     best_val_rmse, best_epoch = trainer.train(X_train, y_train, X_val, y_val)
 
     torch.save(trainer.best_state, results_folder / "regressor_best.pth")
@@ -422,7 +488,10 @@ def main():
     print(f"Test RMSE (scaled): {test_rmse:.4f}")
 
     trainer.plot_rmse_curve(best_epoch)
+    trainer.plot_target_qq(y_train_original)
     trainer.plot_actual_vs_predicted(X_test, y_test, preprocessor)
+    trainer.plot_scaled_vs_predicted(X_test, y_test)
+
 
     # Final predictions
     df_target = pd.read_csv(target_books_path, dtype={"isbn": "string", "q_since_first": "string"})
