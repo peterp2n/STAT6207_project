@@ -57,7 +57,14 @@ class TrainingConfig:
     ])
 
     drop_cols: List[str] = field(default_factory=lambda: [
-        "number_of_reviews", 'price', 'height', 'length', 'width', 'item_weight', 'print_length', 'rating'
+        "number_of_reviews",
+        'price',
+        'height',
+        'length',
+        'width',
+        'item_weight',
+        'print_length',
+        # 'rating'
     ])
 
     target_col: str = "quantity"
@@ -311,9 +318,7 @@ def set_random_seeds(seed: int):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-def load_and_split_data(data_path: Path, config: TrainingConfig):
-    df_full = pd.read_csv(data_path, dtype={"isbn": "string", "q_since_first": "string"})
-    df_full["isbn"] = df_full["isbn"].astype("string")
+def load_and_split_data(df_full: pd.DataFrame, config: TrainingConfig):
     df_train, df_temp = train_test_split(df_full, test_size=0.2, random_state=config.seed, shuffle=True)
     df_val, df_test = train_test_split(df_temp, test_size=0.5, random_state=config.seed, shuffle=True)
     print(f"Train: {len(df_train)} | Val: {len(df_val)} | Test: {len(df_test)}")
@@ -381,8 +386,11 @@ def main():
 
     data_path = Path("data/target_series_new_with_features2.csv")
     target_books_path = Path("data/target_books_new.csv")
-
-    df_train, df_val, df_test = load_and_split_data(data_path, config)
+    df = pd.read_csv(data_path, dtype={"isbn": "string", "q_since_first": "string"})
+    df["isbn"] = df["isbn"].astype("string")
+    # Retail and wholesale constitute of a majority of the data
+    df = df[df["channel"].isin(["retail", "wholesale"])]
+    df_train, df_val, df_test = load_and_split_data(df, config)
 
     preprocessor = DataPreprocessor(config)
     preprocessor.fit_imputation(df_train)
@@ -449,14 +457,14 @@ def main():
 
 
     q_since_first_mapping = {
-        "9781338896459": [5, 6, 7, 8], # dog_man, hardcover, 9781338236576
-        "9781338896398": [9, 10, 11, 12], # cat_kid, hardcover, 9789813387386
-        "9781529097153": [9, 10, 11, 12], # andy_griffiths, paperback, 9781529088601
-        "9781338347258": [15, 16, 17, 18], # captain_underpants, hardcover, 9781338271508
-        "9789810950286": [41, 42, 43, 44], # captain_underpants, paperback, 9789810731540
-        "9789814918015": [12, 13, 14, 15], # captain_underpants, paperback, 9789810731540
-        "9781913484521": [5, 6, 7, 8], # guinness, paperback, 9781913484385
-        "9781913484552": [5, 6, 7, 8] # guinness, hardcover, 9781913484385
+        "9781338896459": [5, 6, 7, 8], # dog_man, hardcover, 9781338236576: Q5-8
+        "9781338896398": [9, 10, 11, 12], # cat_kid, hardcover, 9789813387386: Q2-5
+        "9781529097153": [9, 10, 11, 12], # andy_griffiths, paperback, 9781529088601: Q1-4
+        "9781338347258": [15, 16, 17, 18], # captain_underpants, hardcover, 9781338271508: Q1-4
+        "9789810950286": [41, 42, 43, 44], # captain_underpants, paperback, Q16-19, 9789814919975: Q16-19
+        "9789814918015": [12, 13, 14, 15], # "9789814918015": [12, 13, 14, 15], # captain_underpants, paperback, 9789814919999: Q12-15
+        "9781913484521": [5, 6, 7, 8], # guinness, paperback, 9781913484385: Q0-3
+        "9781913484552": [5, 6, 7, 8] # guinness, hardcover, 9781913484385: Q0-3
     }
     q_series_mapping = {
         "9781338896459": "9781338236576",
@@ -472,7 +480,7 @@ def main():
 
     quarters = ["q1", "q2", "q3", "q4"]
     ######################## dog_man ########################
-    # "9781338896459": Q5-8, # dog_man, hardcover, 9781338236576: Q5-8
+    # "9781338896459": [5, 6, 7, 8], # dog_man, hardcover, 9781338236576: Q5-8
     plt.figure(figsize=(8, 5))
 
     dog_man_target = concat.loc[concat["isbn"] == "9781338896459", "quantity"]
@@ -481,11 +489,11 @@ def main():
     plt.plot(quarters, dog_man_backtest.tolist(), marker='s', label="9781338236576 (backtest)")
     plt.title("Dog Man on Market for over a year since marketed")
     plt.ylabel("Quantity")
-    plt.xlabel("Time since marketed")
+    plt.xlabel("Selected Quarter")
     plt.legend()
     plt.show()
     ######################## cat_kid ########################
-    # "9781338896398": [9, 10, 11, 12], # cat_kid, hardcover,
+    # "9781338896398": [9, 10, 11, 12], # cat_kid, hardcover, 9789813387386: Q2-5
     plt.figure(figsize=(8, 5))
     cat_kid_target = concat.loc[concat["isbn"] == "9781338896398", "quantity"]
     cat_kid_backtest = concat.loc[concat["isbn"] == "9789813387386", "quantity"]
@@ -493,12 +501,12 @@ def main():
     plt.plot(quarters, cat_kid_backtest.tolist(), marker='s', label="9789813387386 (backtest) (Q)")
     plt.title("Cat Kid on Market for over a year since marketed")
     plt.ylabel("Quantity")
-    plt.xlabel("Time since marketed")
+    plt.xlabel("Selected Quarter")
     plt.legend()
     plt.show()
 
     ######################## andy_griffiths ########################
-    # "9781529097153": [9, 10, 11, 12], # andy_griffiths, paperback, 9781529088601
+    # "9781529097153": [9, 10, 11, 12], # andy_griffiths, paperback, 9781529088601: Q1-4
     plt.figure(figsize=(8, 5))
     andy_griffiths_target = concat.loc[concat["isbn"] == "9781529097153", "quantity"]
     andy_griffiths_backtest = concat.loc[concat["isbn"] == "9781529088601", "quantity"]
@@ -506,53 +514,47 @@ def main():
     plt.plot(quarters, andy_griffiths_backtest.tolist(), marker='s', label="9781529088601 (backtest) (Q)")
     plt.title("Andy Griffiths on Market for over 2 years since marketed")
     plt.ylabel("Quantity")
-    plt.xlabel("Time since marketed")
+    plt.xlabel("Selected Quarter")
     plt.legend()
     plt.show()
 
     ######################## captain_underpants1 ########################
-    # "9781338347258": [15, 16, 17, 18],  # captain_underpants, hardcover, 9781338271508
+    # "9781338347258": [15, 16, 17, 18], # captain_underpants, hardcover, 9781338347210: Q1-4
     plt.figure(figsize=(8, 5))
     captain_underpants_target1 = concat.loc[concat["isbn"] == "9781338347258", "quantity"]
-    captain_underpants_backtest1 = concat.loc[concat["isbn"] == "9781338271508", "quantity"]
+    captain_underpants_backtest1 = concat.loc[concat["isbn"] == "9781338347210", "quantity"]
     plt.plot(quarters, captain_underpants_target1.tolist(), marker='o', label="9781338347258 (target)")
-    plt.plot(quarters, captain_underpants_backtest1.tolist(), marker='s', label="9781338271508 (backtest)")
-    plt.title("Captain Underpants on Market for 15-18 quarters since first sale")
+    plt.plot(quarters, captain_underpants_backtest1.tolist(), marker='s', label="9781338347210 (backtest)")
+    plt.title("Captain Underpants on Market for 4 years since marketed")
     plt.ylabel("Quantity")
-    plt.xlabel("Time since marketed")
+    plt.xlabel("Selected Quarter")
     plt.legend()
     plt.show()
 
     ######################## captain_underpants2 ########################
-    # "9789810950286": [41, 42, 43, 44],  # captain_underpants, paperback, 9789810731540 Q28-31
+    # "9789810950286": [41, 42, 43, 44], # captain_underpants, paperback, 9789814919975: Q16-19
     plt.figure(figsize=(8, 5))
-    captain_underpants_target2 = concat.loc[
-        (concat["isbn"] == "9789810950286") & ((concat["q_since_first"].isin(range(28, 32))))
-        , "quantity"
-    ]
-    captain_underpants_backtest2 = concat.loc[concat["isbn"] == "9789810731540", "quantity"]
+    captain_underpants_target2 = concat.loc[concat["isbn"] == "9789810950286", "quantity"]
+    captain_underpants_backtest2 = concat.loc[concat["isbn"] == "9789814919975", "quantity"]
     plt.plot(quarters, captain_underpants_target2.tolist(), marker='o', label="9789810950286 (target)")
-    plt.plot(quarters, captain_underpants_backtest2.tolist(), marker='s', label="9789810731540 (backtest)")
-    plt.title("Captain Underpants on Market for almost 4 years since first sale")
+    plt.plot(quarters, captain_underpants_backtest2.tolist(), marker='s', label="9789814919975 (backtest)")
+    plt.title("Captain Underpants on Market for almost 4 years since marketed")
     plt.ylabel("Quantity")
-    plt.xlabel("Time since marketed")
+    plt.xlabel("Selected Quarter")
     plt.legend()
     plt.show()
 
 
     ######################## captain_underpants3 ########################
-    # "9789814918015": [12, 13, 14, 15],  # captain_underpants, paperback, 9789810731540
+    # "9789814918015": [12, 13, 14, 15], # captain_underpants, paperback, 9789814919999: Q12-15
     plt.figure(figsize=(8, 5))
-    captain_underpants_target2 = concat.loc[
-        (concat["isbn"] == "9789810950286") & ((concat["q_since_first"].isin(range(28, 32))))
-        , "quantity"
-    ]
-    captain_underpants_backtest2 = concat.loc[concat["isbn"] == "9789810731540", "quantity"]
+    captain_underpants_target2 = concat.loc[concat["isbn"] == "9789810950286", "quantity"]
+    captain_underpants_backtest2 = concat.loc[concat["isbn"] == "9789814919999", "quantity"]
     plt.plot(quarters, captain_underpants_target2.tolist(), marker='o', label="9789810950286 (target)")
-    plt.plot(quarters, captain_underpants_backtest2.tolist(), marker='s', label="9789810731540 (backtest)")
-    plt.title("Captain Underpants on Market for almost 4 years since first sale")
+    plt.plot(quarters, captain_underpants_backtest2.tolist(), marker='s', label="9789814919999 (backtest)")
+    plt.title("Captain Underpants on Market for almost 4 years since marketed")
     plt.ylabel("Quantity")
-    plt.xlabel("Time since marketed")
+    plt.xlabel("Selected Quarter")
     plt.legend()
     plt.show()
 
@@ -565,7 +567,7 @@ def main():
     plt.plot(quarters, guinness_backtest1.tolist(), marker='s', label="9781913484385 (backtest) (Q)")
     plt.title("Guiness on Market for over 4 years since marketed")
     plt.ylabel("Quantity")
-    plt.xlabel("Time since marketed")
+    plt.xlabel("Selected Quarter")
     plt.legend()
     plt.show()
 
@@ -578,7 +580,7 @@ def main():
     plt.plot(quarters, guinness_backtest2.tolist(), marker='s', label="9781913484385 (backtest) (Q)")
     plt.title("Guiness on Market for over 4 years since marketed")
     plt.ylabel("Quantity")
-    plt.xlabel("Time since marketed")
+    plt.xlabel("Selected Quarter")
     plt.legend()
     plt.show()
 
