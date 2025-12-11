@@ -4,6 +4,7 @@ import pandas as pd
 import polars as pl
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.preprocessing import RobustScaler
 
 if __name__ == "__main__":
 
@@ -110,8 +111,8 @@ if __name__ == "__main__":
 
         l_mean = log_data.mean()
         l_std = log_data.std()
-        lower_bound = l_mean - 3 * l_std
-        upper_bound = l_mean + 3 * l_std
+        lower_bound = l_mean - 7 * l_std
+        upper_bound = l_mean + 7 * l_std
         clipped_data = np.clip(log_data, lower_bound, upper_bound)
 
         c_mean = clipped_data.mean()
@@ -184,23 +185,20 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.show()
 
-    # --- PART 5: Scatterplots with best-fit line (unscaled) ---
+    # --- PART 5a: Scatterplots with best-fit line (unscaled) ---
 
-    # y is quantity, x are the predictor variables from the heatmap except quantity itself
     scatter_x_cols = [c for c in continuous_cols if c != "quantity"]
-
-    # Unscaled data from sales_features
     sales_pdf = sales_features.select(scatter_x_cols + ["quantity"]).to_pandas()
 
     for col in scatter_x_cols:
         plt.figure(figsize=(8, 6))
         sns.regplot(
             data=sales_pdf,
-            x=col,  # predictor on x-axis
-            y="quantity",  # response on y-axis
+            x=col,
+            y="quantity",
             scatter_kws={"alpha": 0.4, "s": 20},
             line_kws={"color": "red", "linewidth": 2},
-            ci=None  # drop CI if you only want the best-fit line
+            ci=None,
         )
         plt.title(f"quantity vs {col} (unscaled) with best-fit line")
         plt.xlabel(col)
@@ -208,4 +206,47 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.show()
 
+    # --- PART 5b: Scatterplots with best-fit line AFTER transformation ---
+    # Transformation: log1p -> RobustScaler -> clip at ±7
 
+    scaler = RobustScaler()  # median / IQR-based scaling [web:59][web:62]
+
+    for col in scatter_x_cols:
+        # Take raw values
+        x_raw = sales_pdf[col].to_numpy()
+        y_raw = sales_pdf["quantity"].to_numpy()
+
+        # log1p transform (handle non-negative assumption yourself upsteam if needed) [web:64]
+        x_log = np.log1p(x_raw)
+        y_log = np.log1p(y_raw)
+
+        # Robust scaling (fit per pair so each plot is self-contained)
+        xy_log = np.column_stack([x_log, y_log])
+        xy_scaled = scaler.fit_transform(xy_log)
+        x_scaled = xy_scaled[:, 0]
+        y_scaled = xy_scaled[:, 1]
+
+        # Clip at ±7
+        x_clipped = np.clip(x_scaled, -7, 7)
+        y_clipped = np.clip(y_scaled, -7, 7)
+
+        # Build a temporary DataFrame for plotting
+        tmp_df = pd.DataFrame({
+            f"{col}_trans": x_clipped,
+            "quantity_trans": y_clipped,
+        })
+
+        plt.figure(figsize=(8, 6))
+        sns.regplot(
+            data=tmp_df,
+            x=f"{col}_trans",
+            y="quantity_trans",
+            scatter_kws={"alpha": 0.4, "s": 20},
+            line_kws={"color": "red", "linewidth": 2},
+            ci=None,
+        )
+        plt.title(f"Transformed quantity vs {col} (log1p + RobustScaler, clipped ±7)")
+        plt.xlabel(f"{col} (transformed)")
+        plt.ylabel("quantity (transformed)")
+        plt.tight_layout()
+        plt.show()
