@@ -20,7 +20,7 @@ class TrainingConfig:
     # Model hyperparameters
     dropout: float = 0.2
     learning_rate: float = 5e-4
-    weight_decay: float = 2e-4
+    weight_decay: float = 1e-4
     batch_size: int = 256
     epochs: int = 300
     patience: int = 50
@@ -388,8 +388,6 @@ def main():
     target_books_path = Path("data/target_books_new.csv")
     df = pd.read_csv(data_path, dtype={"isbn": "string", "q_since_first": "string"})
     df["isbn"] = df["isbn"].astype("string")
-    # Retail and wholesale constitute of a majority of the data
-    # df = df[df["channel"].isin(["retail", "wholesale"])]
     df_train, df_val, df_test = load_and_split_data(df, config)
 
     preprocessor = DataPreprocessor(config)

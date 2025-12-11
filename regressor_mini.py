@@ -11,11 +11,15 @@ class RegressorMini(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout),
 
-            nn.Linear(128, 96),
+            nn.Linear(128, 64),
             nn.ReLU(),
             nn.Dropout(0.1),
 
-            nn.Linear(96, 1),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+
+            nn.Linear(32, 1),
         )
 
     def forward(self, x):
