@@ -19,9 +19,9 @@ class TrainingConfig:
     """Configuration for model training."""
     # Model hyperparameters
     dropout: float = 0.3
-    learning_rate: float = 5e-5
-    weight_decay: float = 1e-5
-    batch_size: int = 128
+    learning_rate: float = 5e-4
+    weight_decay: float = 1e-4
+    batch_size: int = 256
     epochs: int = 250
     patience: int = 50
 
