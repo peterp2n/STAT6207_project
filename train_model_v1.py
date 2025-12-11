@@ -521,6 +521,8 @@ def main():
     backtest["isbn"] = backtest["isbn"].astype("string")
     concat = pd.concat([df_target, backtest])
 
+    purchase = pd.read_csv("data/purchase_v2.csv", dtype={"isbn": "string", "q_since_first": "string"})
+    purchase["isbn"] = purchase["isbn"].astype("string")
 
 
     q_since_first_mapping = {
@@ -618,7 +620,7 @@ def main():
     plt.show()
 
     ######################## captain_underpants2 ########################
-    # "9789810950286": [41, 42, 43, 44], # captain_underpants, paperback, 9789814919975: Q16-19
+    # "9789810950286": [41, 42, 43, 44], # captain_underpants, paperback, Q16-19, 9789814919975: Q16-19
 
     captain_underpants_target2_isbn = "9789810950286"
     captain_underpants_backtest2_isbn = isbn_mapping[captain_underpants_target2_isbn]
@@ -638,7 +640,7 @@ def main():
 
 
     ######################## captain_underpants3 ########################
-    # "9789814918015": [12, 13, 14, 15], # captain_underpants, paperback, 9789814919999: Q12-15
+    # "9789814918015": [12, 13, 14, 15], # captain_underpants, paperback, Q12-15, 9789814919999: Q12-15
     captain_underpants_target3_isbn = "9789814918015"
     captain_underpants_backtest3_isbn = isbn_mapping[captain_underpants_target3_isbn]
 
@@ -656,7 +658,7 @@ def main():
     plt.show()
 
     ######################## guinness1 ########################
-    # "9781913484521": [5, 6, 7, 8],  # guinness, paperback, 9781913484385
+    # "9781913484521": [5, 6, 7, 8], # guinness, paperback, 9781913484385: Q0-3
     guinness_target1_isbn = "9781913484521"
     guinness_backtest1_isbn = isbn_mapping[guinness_target1_isbn]
 
@@ -674,7 +676,7 @@ def main():
     plt.show()
 
     ######################## guinness2 ########################
-    # "9781913484552": [5, 6, 7, 8]  # guinness, hardcover, 9781913484385
+    # "9781913484552": [5, 6, 7, 8] # guinness, hardcover, 9781913484385: Q0-3
     guinness_target2_isbn = "9781913484552"
     guinness_backtest2_isbn = isbn_mapping[guinness_target2_isbn]
 
