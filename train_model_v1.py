@@ -497,8 +497,8 @@ def main():
     plt.figure(figsize=(8, 5))
     cat_kid_target = concat.loc[concat["isbn"] == "9781338896398", "quantity"]
     cat_kid_backtest = concat.loc[concat["isbn"] == "9789813387386", "quantity"]
-    plt.plot(quarters, cat_kid_target.tolist(), marker='o', label="9781338896398 (target) (Q9-12)")
-    plt.plot(quarters, cat_kid_backtest.tolist(), marker='s', label="9789813387386 (backtest) (Q)")
+    plt.plot(quarters, cat_kid_target.tolist(), marker='o', label="9781338896398 (target)")
+    plt.plot(quarters, cat_kid_backtest.tolist(), marker='s', label="9789813387386 (backtest)")
     plt.title("Cat Kid on Market for over a year since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")
@@ -510,8 +510,8 @@ def main():
     plt.figure(figsize=(8, 5))
     andy_griffiths_target = concat.loc[concat["isbn"] == "9781529097153", "quantity"]
     andy_griffiths_backtest = concat.loc[concat["isbn"] == "9781529088601", "quantity"]
-    plt.plot(quarters, andy_griffiths_target.tolist(), marker='o', label="9781529097153 (target) (Q9-12)")
-    plt.plot(quarters, andy_griffiths_backtest.tolist(), marker='s', label="9781529088601 (backtest) (Q)")
+    plt.plot(quarters, andy_griffiths_target.tolist(), marker='o', label="9781529097153 (target)")
+    plt.plot(quarters, andy_griffiths_backtest.tolist(), marker='s', label="9781529088601 (backtest)")
     plt.title("Andy Griffiths on Market for over 2 years since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")
@@ -576,8 +576,8 @@ def main():
     plt.figure(figsize=(8, 5))
     guinness_target2 = concat.loc[concat["isbn"] == "9781913484552", "quantity"]
     guinness_backtest2 = concat.loc[concat["isbn"] == "9781913484385", "quantity"]
-    plt.plot(quarters, guinness_target2.tolist(), marker='o', label="9781913484552 (target) (Q9-12)")
-    plt.plot(quarters, guinness_backtest2.tolist(), marker='s', label="9781913484385 (backtest) (Q)")
+    plt.plot(quarters, guinness_target2.tolist(), marker='o', label="9781913484552 (target)")
+    plt.plot(quarters, guinness_backtest2.tolist(), marker='s', label="9781913484385 (backtest)")
     plt.title("Guiness on Market for over 4 years since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")
