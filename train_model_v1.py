@@ -519,7 +519,10 @@ def main():
                                "q_since_first": "string",
                            })
     backtest["isbn"] = backtest["isbn"].astype("string")
-    concat = pd.concat([df_target, backtest])
+    concat = pd.concat([df_target, backtest]).sort_values(by=["isbn", "q_since_first"], ascending=True)
+
+    baseline_pred = pd.read_csv(Path("data") / "knn_predictions.csv", dtype={"isbn": "string", "q_num": "string"})
+    baseline_pred = baseline_pred.sort_values(by=["isbn", "q_num"], ascending=True)
 
     purchase = pd.read_csv("data/purchase_v2.csv", dtype={"isbn": "string", "q_since_first": "string"})
     purchase["isbn"] = purchase["isbn"].astype("string")
@@ -556,10 +559,16 @@ def main():
 
     dog_man_target = concat.loc[concat["isbn"] == dog_man_target_isbn, "quantity"]
     dog_man_backtest = concat.loc[concat["isbn"] == dog_man_backtest_isbn, "quantity"]
+    dog_man_baseline = baseline_pred.loc[baseline_pred["isbn"] == dog_man_target_isbn, "pred_quantity"]
 
     plt.figure(figsize=(8, 5))
-    plt.plot(quarters, dog_man_target.tolist(), marker='o', label=f"{dog_man_target_isbn} (target)")
-    plt.plot(quarters, dog_man_backtest.tolist(), marker='s', label=f"{dog_man_backtest_isbn} (backtest)")
+    plt.plot(quarters, dog_man_target.tolist(),
+             marker='o', color='tab:blue', label=f"{dog_man_target_isbn} (target)")
+    plt.plot(quarters, dog_man_backtest.tolist(),
+             marker='s', color='tab:orange', label=f"{dog_man_backtest_isbn} (backtest)")
+    plt.plot(quarters, dog_man_baseline.tolist(),
+             marker='^', color='tab:green', label=f"{dog_man_target_isbn} (baseline)")
+
     plt.title("Dog Man on Market for over a year since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")
@@ -572,10 +581,13 @@ def main():
     cat_kid_backtest_isbn = isbn_mapping[cat_kid_target_isbn]
     cat_kid_target = concat.loc[concat["isbn"] == cat_kid_target_isbn, "quantity"]
     cat_kid_backtest = concat.loc[concat["isbn"] == cat_kid_backtest_isbn, "quantity"]
+    cat_kid_baseline = baseline_pred.loc[baseline_pred["isbn"] == cat_kid_target_isbn, "pred_quantity"]
 
     plt.figure(figsize=(8, 5))
-    plt.plot(quarters, cat_kid_target.tolist(), marker='o', label=f"{cat_kid_target_isbn} (target)")
-    plt.plot(quarters, cat_kid_backtest.tolist(), marker='s', label=f"{cat_kid_backtest_isbn} (backtest)")
+    plt.plot(quarters, cat_kid_target.tolist(), marker='o', color='tab:blue', label=f"{cat_kid_target_isbn} (target)")
+    plt.plot(quarters, cat_kid_backtest.tolist(), marker='s', color='tab:orange', label=f"{cat_kid_backtest_isbn} (backtest)")
+    plt.plot(quarters, cat_kid_baseline.tolist(), marker='^', color='tab:green',
+             label=f"{cat_kid_target_isbn} (baseline)")
 
     plt.title("Cat Kid on Market for two years since marketed")
     plt.ylabel("Quantity")
@@ -590,10 +602,13 @@ def main():
 
     andy_griffiths_target = concat.loc[concat["isbn"] == andy_griffiths_target_isbn, "quantity"]
     andy_griffiths_backtest = concat.loc[concat["isbn"] == andy_griffiths_backtest_isbn, "quantity"]
+    andy_griffiths_baseline = baseline_pred.loc[baseline_pred["isbn"] == andy_griffiths_target_isbn,
+    "pred_quantity"]
 
     plt.figure(figsize=(8, 5))
-    plt.plot(quarters, andy_griffiths_target.tolist(), marker='o', label=f"{andy_griffiths_target_isbn} (target)")
-    plt.plot(quarters, andy_griffiths_backtest.tolist(), marker='s', label=f"{andy_griffiths_backtest_isbn} (backtest)")
+    plt.plot(quarters, andy_griffiths_target.tolist(), marker='o', color='tab:blue', label=f"{andy_griffiths_target_isbn} (target)")
+    plt.plot(quarters, andy_griffiths_backtest.tolist(), marker='s', color='tab:orange', label=f"{andy_griffiths_backtest_isbn} (backtest)")
+    plt.plot(quarters, andy_griffiths_baseline.tolist(), marker='^', color='tab:green', label=f"{andy_griffiths_target_isbn} (baseline)")
 
     plt.title("Andy Griffiths on Market for over 2 years since marketed")
     plt.ylabel("Quantity")
@@ -608,10 +623,13 @@ def main():
 
     captain_underpants_target1 = concat.loc[concat["isbn"] == captain_underpants_target1_isbn, "quantity"]
     captain_underpants_backtest1 = concat.loc[concat["isbn"] == captain_underpants_backtest1_isbn, "quantity"]
+    captain_underpants_baseline1 = baseline_pred.loc[baseline_pred["isbn"] == captain_underpants_target1_isbn,
+    "pred_quantity"]
 
     plt.figure(figsize=(8, 5))
-    plt.plot(quarters, captain_underpants_target1.tolist(), marker='o', label=f"{captain_underpants_target1_isbn} (target)")
-    plt.plot(quarters, captain_underpants_backtest1.tolist(), marker='s', label=f"{captain_underpants_backtest1_isbn} (backtest)")
+    plt.plot(quarters, captain_underpants_target1.tolist(), marker='o', color='tab:blue', label=f"{captain_underpants_target1_isbn} (target)")
+    plt.plot(quarters, captain_underpants_backtest1.tolist(), marker='s', color='tab:orange', label=f"{captain_underpants_backtest1_isbn} (backtest)")
+    plt.plot(quarters, captain_underpants_baseline1.tolist(), marker='^', color='tab:green', label=f"{captain_underpants_target1_isbn} (baseline)")
 
     plt.title("Captain Underpants on Market for 4 years since marketed")
     plt.ylabel("Quantity")
@@ -627,10 +645,13 @@ def main():
 
     captain_underpants_target2 = concat.loc[concat["isbn"] == captain_underpants_target2_isbn, "quantity"]
     captain_underpants_backtest2 = concat.loc[concat["isbn"] == captain_underpants_backtest2_isbn, "quantity"]
+    captain_underpants_baseline2 = baseline_pred.loc[baseline_pred["isbn"] == captain_underpants_target2_isbn,
+    "pred_quantity"]
 
     plt.figure(figsize=(8, 5))
-    plt.plot(quarters, captain_underpants_target2.tolist(), marker='o', label=f"{captain_underpants_target2_isbn} (target)")
-    plt.plot(quarters, captain_underpants_backtest2.tolist(), marker='s', label=f"{captain_underpants_backtest2_isbn} (backtest)")
+    plt.plot(quarters, captain_underpants_target2.tolist(), marker='o', color='tab:blue', label=f"{captain_underpants_target2_isbn} (target)")
+    plt.plot(quarters, captain_underpants_backtest2.tolist(), marker='s', color='tab:orange', label=f"{captain_underpants_backtest2_isbn} (backtest)")
+    plt.plot(quarters, captain_underpants_baseline2.tolist(), marker='^', color='tab:green', label=f"{captain_underpants_target2_isbn} (baseline)")
 
     plt.title("Captain Underpants on Market for almost 4 years since marketed")
     plt.ylabel("Quantity")
@@ -646,10 +667,13 @@ def main():
 
     captain_underpants_target3 = concat.loc[concat["isbn"] == captain_underpants_target3_isbn, "quantity"]
     captain_underpants_backtest3 = concat.loc[concat["isbn"] == captain_underpants_backtest3_isbn, "quantity"]
+    captain_underpants_baseline3 = baseline_pred.loc[baseline_pred["isbn"] == captain_underpants_target3_isbn,
+    "pred_quantity"]
 
     plt.figure(figsize=(8, 5))
-    plt.plot(quarters, captain_underpants_target3.tolist(), marker='o', label=f"{captain_underpants_target3_isbn} (target)")
-    plt.plot(quarters, captain_underpants_backtest3.tolist(), marker='s', label=f"{captain_underpants_backtest3_isbn} (backtest)")
+    plt.plot(quarters, captain_underpants_target3.tolist(), marker='o', color='tab:blue', label=f"{captain_underpants_target3_isbn} (target)")
+    plt.plot(quarters, captain_underpants_backtest3.tolist(), marker='s', color='tab:orange', label=f"{captain_underpants_backtest3_isbn} (backtest)")
+    plt.plot(quarters, captain_underpants_baseline3.tolist(), marker='^', color='tab:green', label=f"{captain_underpants_target3_isbn} (baseline)")
 
     plt.title("Captain Underpants on Market for almost 4 years since marketed")
     plt.ylabel("Quantity")
@@ -664,10 +688,13 @@ def main():
 
     guinness_target1 = concat.loc[concat["isbn"] == guinness_target1_isbn, "quantity"]
     guinness_backtest1 = concat.loc[concat["isbn"] == guinness_backtest1_isbn, "quantity"]
+    guinness_baseline1 = baseline_pred.loc[baseline_pred["isbn"] == guinness_target1_isbn,
+    "pred_quantity"]
 
     plt.figure(figsize=(8, 5))
-    plt.plot(quarters, guinness_target1.tolist(), marker='o', label=f"{guinness_target1_isbn} (target)")
-    plt.plot(quarters, guinness_backtest1.tolist(), marker='s', label=f"{guinness_backtest1_isbn} (backtest)")
+    plt.plot(quarters, guinness_target1.tolist(), marker='o', color='tab:blue', label=f"{guinness_target1_isbn} (target)")
+    plt.plot(quarters, guinness_backtest1.tolist(), marker='s', color='tab:orange', label=f"{guinness_backtest1_isbn} (backtest)")
+    plt.plot(quarters, guinness_baseline1.tolist(), marker='^', color='tab:green', label=f"{guinness_target1_isbn} (baseline)")
 
     plt.title("Guiness on Market for over 4 years since marketed")
     plt.ylabel("Quantity")
@@ -682,10 +709,13 @@ def main():
 
     guinness_target2 = concat.loc[concat["isbn"] == guinness_target2_isbn, "quantity"]
     guinness_backtest2 = concat.loc[concat["isbn"] == guinness_backtest2_isbn, "quantity"]
+    guinness_baseline2 = baseline_pred.loc[baseline_pred["isbn"] == guinness_target2_isbn,
+    "pred_quantity"]
 
     plt.figure(figsize=(8, 5))
-    plt.plot(quarters, guinness_target2.tolist(), marker='o', label=f"{guinness_target2_isbn} (target)")
-    plt.plot(quarters, guinness_backtest2.tolist(), marker='s', label=f"{guinness_backtest2_isbn} (backtest)")
+    plt.plot(quarters, guinness_target2.tolist(), marker='o', color='tab:blue', label=f"{guinness_target2_isbn} (target)")
+    plt.plot(quarters, guinness_backtest2.tolist(), marker='s', color='tab:orange', label=f"{guinness_backtest2_isbn} (backtest)")
+    plt.plot(quarters, guinness_baseline2.tolist(), marker='^', color='tab:green', label=f"{guinness_target2_isbn} (baseline)")
 
     plt.title("Guiness on Market for over 4 years since marketed")
     plt.ylabel("Quantity")
