@@ -49,27 +49,6 @@ if __name__ == "__main__":
         "length", "width", "height", "rating", "price", "quantity"
     ]
     raw_sales_features_pdf = sales_features.select(continuous_cols).to_pandas()
-    #
-    # # Proceed with Imputation
-    # sales_features = (
-    #     sales_features.join(groupby_series, on="series", how="left")
-    #     .with_columns([
-    #         pl.when(pl.col("print_length").is_null()).then(pl.col("series_print_length")).otherwise(
-    #             pl.col("print_length")).alias("print_length"),
-    #         pl.when(pl.col("length").is_null()).then(pl.col("series_length")).otherwise(pl.col("length")).alias(
-    #             "length"),
-    #         pl.when(pl.col("width").is_null()).then(pl.col("series_width")).otherwise(pl.col("width")).alias("width"),
-    #         pl.when(pl.col("height").is_null()).then(pl.col("series_height")).otherwise(pl.col("height")).alias(
-    #             "height"),
-    #         pl.when(pl.col("rating").is_null()).then(pl.col("series_rating")).otherwise(pl.col("rating")).alias(
-    #             "rating"),
-    #         pl.when(pl.col("item_weight").is_null()).then(pl.col("series_item_weight")).otherwise(
-    #             pl.col("item_weight")).alias("item_weight"),
-    #         pl.when(pl.col("price").is_null()).then(pl.col("series_price")).otherwise(pl.col("price")).alias("price")
-    #     ])
-    #     .drop(["series_print_length", "series_length", "series_width", "series_height", "series_rating",
-    #            "series_item_weight", "series_price"])
-    # )
 
     sns.set_theme(style="whitegrid")
 
@@ -120,8 +99,8 @@ if __name__ == "__main__":
     transformed_data_collection = {}
 
     for col in continuous_cols:
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10), sharey=False)
-        axes = axes.flatten()
+        # fig, axes = plt.subplots(2, 2, figsize=(12, 10), sharey=False)
+        # axes = axes.flatten()
 
         # Extract data (This is now the IMPUTED data)
         original_data = sales_features[col].to_pandas()
@@ -145,28 +124,28 @@ if __name__ == "__main__":
         # Collect transformed data for "After" heatmap
         transformed_data_collection[col] = std_clipped_data
 
-        # Plotting
-        sns.boxplot(y=original_data, ax=axes[0], color="skyblue")
-        axes[0].set_title(f"1. Original (Imputed): {col}")
-        axes[0].set_ylabel(col)
+        # # Plotting
+        # sns.boxplot(y=original_data, ax=axes[0], color="skyblue")
+        # axes[0].set_title(f"1. Original (Imputed): {col}")
+        # axes[0].set_ylabel(col)
+        #
+        # sns.boxplot(y=log_data, ax=axes[1], color="orange")
+        # axes[1].set_title("2. Log1p Transformed")
+        # axes[1].set_ylabel("Log Value")
+        #
+        # sns.boxplot(y=clipped_data, ax=axes[2], color="green")
+        # axes[2].set_title("3. Clipped (±3 std of Log)")
+        # axes[2].set_ylabel("Clipped Log Value")
+        #
+        # sns.boxplot(y=std_clipped_data, ax=axes[3], color="purple")
+        # axes[3].set_title("4. Standardized Clipped")
+        # axes[3].set_ylabel("Z-Score")
+        #
+        # fig.suptitle(f"Distribution Analysis: {col}", fontsize=16)
+        # plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        # plt.show()
 
-        sns.boxplot(y=log_data, ax=axes[1], color="orange")
-        axes[1].set_title("2. Log1p Transformed")
-        axes[1].set_ylabel("Log Value")
-
-        sns.boxplot(y=clipped_data, ax=axes[2], color="green")
-        axes[2].set_title("3. Clipped (±3 std of Log)")
-        axes[2].set_ylabel("Clipped Log Value")
-
-        sns.boxplot(y=std_clipped_data, ax=axes[3], color="purple")
-        axes[3].set_title("4. Standardized Clipped")
-        axes[3].set_ylabel("Z-Score")
-
-        fig.suptitle(f"Distribution Analysis: {col}", fontsize=16)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        plt.show()
-
-    # --- PART 4: Side-by-Side Heatmaps (Before vs. After) ---
+    # --- PART 4: Separate Heatmaps (Before vs. After) ---
 
     # 1. Calculate "Before" Matrix (Raw Data with NaNs)
     corr_before = raw_sales_features_pdf.corr()
@@ -175,10 +154,6 @@ if __name__ == "__main__":
     transformed_df = pd.DataFrame(transformed_data_collection)
     corr_after = transformed_df.dropna().corr()
 
-    # 3. Plot Side-by-Side
-    # INCREASED SIZE: (32, 14) ensures cells are large enough for 10 variables
-    fig, axes = plt.subplots(1, 2, figsize=(32, 14))
-
     # Common styling for heatmaps
     heatmap_args = {
         "annot": True,
@@ -186,23 +161,51 @@ if __name__ == "__main__":
         "cmap": "coolwarm",
         "center": 0,
         "square": True,
-        "linewidths": 1,  # Thicker grid lines for separation
+        "linewidths": 1,
         "cbar_kws": {"shrink": 0.7},
-        "annot_kws": {"size": 11, "weight": "bold"}  # Make numbers readable
+        "annot_kws": {"size": 11, "weight": "bold"},
     }
 
     # Heatmap 1: Before Imputation
-    sns.heatmap(corr_before, ax=axes[0], **heatmap_args)
-    axes[0].set_title("Correlation: Raw Data (Before Imputation)\n(Pair-wise Deletion)", fontsize=18, pad=20)
-    axes[0].tick_params(axis='x', rotation=45, labelsize=12)
-    axes[0].tick_params(axis='y', rotation=0, labelsize=12)
-
-    # Heatmap 2: After Imputation + Transformation
-    sns.heatmap(corr_after, ax=axes[1], **heatmap_args)
-    axes[1].set_title("Correlation: Transformed Data (After)\n(Imputed + Log1p + Clipped + Std)", fontsize=18,
-                      pad=20)
-    axes[1].tick_params(axis='x', rotation=45, labelsize=12)
-    axes[1].tick_params(axis='y', rotation=0, labelsize=12)
-
+    plt.figure(figsize=(16, 12))
+    sns.heatmap(corr_before, **heatmap_args)
+    plt.title("Correlation: Raw Data (Before Imputation)\n(Pair-wise Deletion)", fontsize=18, pad=20)
+    plt.xticks(rotation=45, fontsize=12)
+    plt.yticks(rotation=0, fontsize=12)
     plt.tight_layout()
     plt.show()
+
+    # Heatmap 2: After Imputation + Transformation
+    plt.figure(figsize=(16, 12))
+    sns.heatmap(corr_after, **heatmap_args)
+    plt.title("Correlation: Transformed Data (After)\n(Log1p + Clipped + Std)", fontsize=18, pad=20)
+    plt.xticks(rotation=45, fontsize=12)
+    plt.yticks(rotation=0, fontsize=12)
+    plt.tight_layout()
+    plt.show()
+
+    # --- PART 5: Scatterplots with best-fit line (unscaled) ---
+
+    # y is quantity, x are the predictor variables from the heatmap except quantity itself
+    scatter_x_cols = [c for c in continuous_cols if c != "quantity"]
+
+    # Unscaled data from sales_features
+    sales_pdf = sales_features.select(scatter_x_cols + ["quantity"]).to_pandas()
+
+    for col in scatter_x_cols:
+        plt.figure(figsize=(8, 6))
+        sns.regplot(
+            data=sales_pdf,
+            x=col,  # predictor on x-axis
+            y="quantity",  # response on y-axis
+            scatter_kws={"alpha": 0.4, "s": 20},
+            line_kws={"color": "red", "linewidth": 2},
+            ci=None  # drop CI if you only want the best-fit line
+        )
+        plt.title(f"quantity vs {col} (unscaled) with best-fit line")
+        plt.xlabel(col)
+        plt.ylabel("quantity")
+        plt.tight_layout()
+        plt.show()
+
+
