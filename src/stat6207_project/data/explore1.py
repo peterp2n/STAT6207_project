@@ -170,7 +170,7 @@ if __name__ == "__main__":
     # Heatmap 1: Before Imputation
     plt.figure(figsize=(16, 12))
     sns.heatmap(corr_before, **heatmap_args)
-    plt.title("Correlation: Raw Data (Before Imputation)\n(Pair-wise Deletion)", fontsize=18, pad=20)
+    plt.title("Correlation: Raw Data", fontsize=18, pad=20)
     plt.xticks(rotation=45, fontsize=12)
     plt.yticks(rotation=0, fontsize=12)
     plt.tight_layout()
@@ -249,4 +249,60 @@ if __name__ == "__main__":
         plt.xlabel(f"{col} (transformed)")
         plt.ylabel("quantity (transformed)")
         plt.tight_layout()
+        plt.show()
+
+    # --- PART 6: Bar chart of quantity vs q_since_first ---
+
+    # Aggregate quantity by q_since_first
+    q_since_df = (
+        sales_features
+        .group_by("q_since_first")
+        .agg(pl.col("quantity").sum().alias("total_quantity"))
+        .sort("q_since_first")
+        .to_pandas()
+    )
+
+    plt.figure(figsize=(10, 6))
+    sns.barplot(
+        data=q_since_df,
+        x="q_since_first",
+        y="total_quantity",
+        color="skyblue"
+    )
+    plt.title("Total quantity by q_since_first")
+    plt.xlabel("q_since_first")
+    plt.ylabel("Total quantity")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+    # --- PART 7: Per-feature before/after boxplots (horizontal, vertically stacked, independent scales) ---
+
+    scaler = RobustScaler()
+
+    for col in continuous_cols:
+        raw = sales_features[col].to_pandas().to_numpy()
+
+        # log1p -> RobustScaler -> clip(±7)
+        log_vals = np.log1p(raw)
+        scaled = scaler.fit_transform(log_vals.reshape(-1, 1)).ravel()
+        clipped = np.clip(scaled, -7, 7)
+
+        # 2 rows, 1 column (no shared x-scale)
+        fig, axes = plt.subplots(2, 1, figsize=(10, 6))
+
+        # Before (horizontal box, its own scale)
+        sns.boxplot(x=raw, y=[col] * len(raw), ax=axes[0], color="skyblue")
+        axes[0].set_title(f"{col} - before")
+        axes[0].set_xlabel("value")
+        axes[0].set_ylabel("")
+
+        # After (horizontal box, its own scale)
+        sns.boxplot(x=clipped, y=[col] * len(clipped), ax=axes[1], color="lightgreen")
+        axes[1].set_title(f"{col} - after (log1p + RobustScaler, clip ±7)")
+        axes[1].set_xlabel("value")
+        axes[1].set_ylabel("")
+
+        fig.suptitle(f"Before vs After: {col}", fontsize=14)
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         plt.show()
