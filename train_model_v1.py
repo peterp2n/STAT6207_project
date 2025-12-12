@@ -569,7 +569,7 @@ def main():
     plt.plot(quarters, dog_man_baseline.tolist(),
              marker='^', color='tab:green', label=f"{dog_man_target_isbn} (baseline)")
 
-    plt.title("Dog Man on Market for over a year since marketed")
+    plt.title("Hardcover Dog Man on Market for 5-8 quarters since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")
     plt.legend()
@@ -589,7 +589,7 @@ def main():
     plt.plot(quarters, cat_kid_baseline.tolist(), marker='^', color='tab:green',
              label=f"{cat_kid_target_isbn} (baseline)")
 
-    plt.title("Cat Kid on Market for two years since marketed")
+    plt.title("Hardcover Cat Kid on Market for 9-12 quarters since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")
     plt.legend()
@@ -610,7 +610,7 @@ def main():
     plt.plot(quarters, andy_griffiths_backtest.tolist(), marker='s', color='tab:orange', label=f"{andy_griffiths_backtest_isbn} (backtest)")
     plt.plot(quarters, andy_griffiths_baseline.tolist(), marker='^', color='tab:green', label=f"{andy_griffiths_target_isbn} (baseline)")
 
-    plt.title("Andy Griffiths on Market for over 2 years since marketed")
+    plt.title("Ppaerback Andy Griffiths on Market for 9-12 quarters since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")
     plt.legend()
@@ -631,7 +631,7 @@ def main():
     plt.plot(quarters, captain_underpants_backtest1.tolist(), marker='s', color='tab:orange', label=f"{captain_underpants_backtest1_isbn} (backtest)")
     plt.plot(quarters, captain_underpants_baseline1.tolist(), marker='^', color='tab:green', label=f"{captain_underpants_target1_isbn} (baseline)")
 
-    plt.title("Captain Underpants on Market for 4 years since marketed")
+    plt.title("Hardvoer Captain Underpants on Market for 1-4 quarters since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")
     plt.legend()
@@ -653,7 +653,7 @@ def main():
     plt.plot(quarters, captain_underpants_backtest2.tolist(), marker='s', color='tab:orange', label=f"{captain_underpants_backtest2_isbn} (backtest)")
     plt.plot(quarters, captain_underpants_baseline2.tolist(), marker='^', color='tab:green', label=f"{captain_underpants_target2_isbn} (baseline)")
 
-    plt.title("Captain Underpants on Market for almost 4 years since marketed")
+    plt.title("Paperback Captain Underpants on Market for 41-44 quarters since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")
     plt.legend()
@@ -675,7 +675,7 @@ def main():
     plt.plot(quarters, captain_underpants_backtest3.tolist(), marker='s', color='tab:orange', label=f"{captain_underpants_backtest3_isbn} (backtest)")
     plt.plot(quarters, captain_underpants_baseline3.tolist(), marker='^', color='tab:green', label=f"{captain_underpants_target3_isbn} (baseline)")
 
-    plt.title("Captain Underpants on Market for almost 4 years since marketed")
+    plt.title("Paperback Captain Underpants on Market for 12-16 quarters since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")
     plt.legend()
@@ -696,7 +696,7 @@ def main():
     plt.plot(quarters, guinness_backtest1.tolist(), marker='s', color='tab:orange', label=f"{guinness_backtest1_isbn} (backtest)")
     plt.plot(quarters, guinness_baseline1.tolist(), marker='^', color='tab:green', label=f"{guinness_target1_isbn} (baseline)")
 
-    plt.title("Guiness on Market for over 4 years since marketed")
+    plt.title("Paperback Guiness on Market for over 5-8 quarters since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")
     plt.legend()
@@ -717,7 +717,7 @@ def main():
     plt.plot(quarters, guinness_backtest2.tolist(), marker='s', color='tab:orange', label=f"{guinness_backtest2_isbn} (backtest)")
     plt.plot(quarters, guinness_baseline2.tolist(), marker='^', color='tab:green', label=f"{guinness_target2_isbn} (baseline)")
 
-    plt.title("Guiness on Market for over 4 years since marketed")
+    plt.title("Hardcover Guiness on Market for 5-8 quarters since marketed")
     plt.ylabel("Quantity")
     plt.xlabel("Selected Quarter")
     plt.legend()
